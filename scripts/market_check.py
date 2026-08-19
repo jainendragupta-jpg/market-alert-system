@@ -4,10 +4,11 @@ import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
 
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -16,35 +17,44 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 HISTORY_PERIOD = "1y"
 BATCH_SIZE = 40
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0 Safari/537.36"
+    ),
+    "Accept": "text/csv,application/json,text/plain,*/*",
+}
+
 
 # ============================================================
 # TELEGRAM
 # ============================================================
 
 def send_telegram(message):
-    """
-    Send message to Telegram.
-    Telegram has a message length limit, so split long reports.
-    """
 
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    if not TOKEN or not CHAT_ID:
+        raise Exception(
+            "Telegram secrets are missing."
+        )
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TOKEN}/sendMessage"
+    )
 
     max_length = 4000
 
-    parts = []
+    while message:
 
-    while len(message) > max_length:
-        split_position = message.rfind("\n", 0, max_length)
+        part = message[:max_length]
 
-        if split_position == -1:
-            split_position = max_length
+        if len(message) > max_length:
 
-        parts.append(message[:split_position])
-        message = message[split_position:]
+            split_at = part.rfind("\n")
 
-    parts.append(message)
-
-    for part in parts:
+            if split_at > 500:
+                part = part[:split_at]
 
         response = requests.post(
             url,
@@ -55,76 +65,77 @@ def send_telegram(message):
             timeout=30
         )
 
-        print("Telegram Status:", response.status_code)
-        print("Telegram Response:", response.text)
+        print(
+            "Telegram:",
+            response.status_code,
+            response.text
+        )
 
         if response.status_code != 200:
             raise Exception(
-                f"Telegram error: {response.text}"
+                response.text
             )
+
+        message = message[len(part):]
 
 
 # ============================================================
-# INDEX DATA
+# INDEX PRICE / TECHNICAL DATA
 # ============================================================
 
 def get_index_data(symbol):
 
     data = yf.Ticker(symbol).history(
         period=HISTORY_PERIOD,
+        interval="1d",
         auto_adjust=False
     )
 
-    if data.empty or len(data) < 200:
+    if data.empty:
         raise Exception(
-            f"Not enough historical data for {symbol}"
+            f"No data returned for {symbol}"
         )
 
-    close_series = data["Close"].dropna()
+    close = data["Close"].dropna()
 
-    close = float(close_series.iloc[-1])
-    previous_close = float(close_series.iloc[-2])
+    if len(close) < 200:
+        raise Exception(
+            f"Not enough data for {symbol}"
+        )
 
-    daily_change = (
-        (close - previous_close)
-        / previous_close
+    current = float(close.iloc[-1])
+
+    previous = float(close.iloc[-2])
+
+    change = (
+        (current - previous)
+        / previous
     ) * 100
 
+    dma20 = close.rolling(20).mean().iloc[-1]
+    dma50 = close.rolling(50).mean().iloc[-1]
+    dma200 = close.rolling(200).mean().iloc[-1]
 
-    # --------------------------------------------------------
-    # MOVING AVERAGES
-    # --------------------------------------------------------
-
-    dma20 = close_series.rolling(20).mean().iloc[-1]
-    dma50 = close_series.rolling(50).mean().iloc[-1]
-    dma200 = close_series.rolling(200).mean().iloc[-1]
-
-
-    # --------------------------------------------------------
-    # PRICE VS MOVING AVERAGES
-    # --------------------------------------------------------
-
-    price_vs_20 = (
-        (close - dma20)
+    vs20 = (
+        (current - dma20)
         / dma20
     ) * 100
 
-    price_vs_50 = (
-        (close - dma50)
+    vs50 = (
+        (current - dma50)
         / dma50
     ) * 100
 
-    price_vs_200 = (
-        (close - dma200)
+    vs200 = (
+        (current - dma200)
         / dma200
     ) * 100
-
 
     # --------------------------------------------------------
     # RSI 14
     # --------------------------------------------------------
 
-    delta = close_series.diff()
+    delta = close.diff()
 
     gain = delta.clip(lower=0)
 
@@ -134,146 +145,295 @@ def get_index_data(symbol):
 
     avg_loss = loss.rolling(14).mean()
 
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-
-    rsi_series = 100 - (
-        100 / (1 + rs)
+    rs = avg_gain / avg_loss.replace(
+        0,
+        np.nan
     )
 
-    rsi_value = float(
+    rsi_series = (
+        100
+        -
+        (100 / (1 + rs))
+    )
+
+    rsi = float(
         rsi_series.dropna().iloc[-1]
     )
-
 
     # --------------------------------------------------------
     # RSI STATUS
     # --------------------------------------------------------
 
-    if rsi_value >= 70:
-
+    if rsi >= 70:
         rsi_status = "OVERBOUGHT"
 
-    elif rsi_value >= 60:
-
+    elif rsi >= 60:
         rsi_status = "STRONG"
 
-    elif rsi_value >= 50:
-
+    elif rsi >= 50:
         rsi_status = "POSITIVE"
 
-    elif rsi_value >= 40:
-
+    elif rsi >= 40:
         rsi_status = "WEAK"
 
-    elif rsi_value >= 30:
-
+    elif rsi >= 30:
         rsi_status = "VERY WEAK"
 
     else:
-
         rsi_status = "OVERSOLD"
-
 
     # --------------------------------------------------------
     # TREND
     # --------------------------------------------------------
 
     if (
-        close > dma20
+        current > dma20
         and dma20 > dma50
         and dma50 > dma200
     ):
-
         trend = "STRONG UPTREND"
 
     elif (
-        close > dma50
+        current > dma50
         and dma50 > dma200
     ):
-
         trend = "UPTREND"
 
     elif (
-        close < dma50
+        current < dma50
         and dma50 < dma200
     ):
-
         trend = "DOWNTREND"
 
     else:
-
         trend = "NEUTRAL"
 
-
     return {
-
-        "close": round(close, 2),
-
-        "change": round(
-            daily_change,
-            2
-        ),
-
-        "dma20": round(
-            float(dma20),
-            2
-        ),
-
-        "dma50": round(
-            float(dma50),
-            2
-        ),
-
-        "dma200": round(
-            float(dma200),
-            2
-        ),
-
-        "vs20": round(
-            float(price_vs_20),
-            2
-        ),
-
-        "vs50": round(
-            float(price_vs_50),
-            2
-        ),
-
-        "vs200": round(
-            float(price_vs_200),
-            2
-        ),
-
-        "rsi": round(
-            rsi_value,
-            2
-        ),
-
+        "close": round(current, 2),
+        "change": round(change, 2),
+        "dma20": round(float(dma20), 2),
+        "dma50": round(float(dma50), 2),
+        "dma200": round(float(dma200), 2),
+        "vs20": round(float(vs20), 2),
+        "vs50": round(float(vs50), 2),
+        "vs200": round(float(vs200), 2),
+        "rsi": round(rsi, 2),
         "rsi_status": rsi_status,
-
         "trend": trend
     }
 
 
 # ============================================================
-# NSE CONSTITUENT LISTS
+# NSE INDEX DAILY CSV
 # ============================================================
 
-def get_nse_csv(url):
+def get_nse_index_csv(date_obj):
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 "
-            "(Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/120 Safari/537.36"
+    date_text = date_obj.strftime("%d%m%Y")
+
+    url = (
+        "https://archives.nseindia.com/"
+        "content/indices/"
+        f"ind_close_all_{date_text}.csv"
+    )
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=20
         )
+
+        if response.status_code != 200:
+            return None
+
+        if len(response.content) < 5000:
+            return None
+
+        from io import StringIO
+
+        df = pd.read_csv(
+            StringIO(
+                response.text
+            )
+        )
+
+        return df
+
+    except Exception as e:
+
+        print(
+            "NSE CSV error:",
+            e
+        )
+
+        return None
+
+
+# ============================================================
+# GET LATEST NSE VALUATION DATA
+# ============================================================
+
+def get_nse_valuation():
+
+    today = datetime.now()
+
+    # Search recent trading days.
+    for days_back in range(0, 10):
+
+        date_to_check = (
+            today - timedelta(
+                days=days_back
+            )
+        )
+
+        df = get_nse_index_csv(
+            date_to_check
+        )
+
+        if df is None:
+            continue
+
+        # Normalize column names
+        df.columns = [
+            str(c).strip()
+            for c in df.columns
+        ]
+
+        if "Index Name" not in df.columns:
+            continue
+
+        # Search Nifty 50
+        rows = df[
+            df["Index Name"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            == "NIFTY 50"
+        ]
+
+        if rows.empty:
+            continue
+
+        row = rows.iloc[0]
+
+        def safe_float(value):
+
+            try:
+
+                if pd.isna(value):
+                    return None
+
+                text = str(value).strip()
+
+                if text in [
+                    "",
+                    "-",
+                    "NA",
+                    "N/A"
+                ]:
+                    return None
+
+                return float(
+                    text.replace(
+                        ",",
+                        ""
+                    )
+                )
+
+            except Exception:
+
+                return None
+
+        pe = safe_float(
+            row.get("P/E")
+        )
+
+        pb = safe_float(
+            row.get("P/B")
+        )
+
+        dividend_yield = safe_float(
+            row.get("Div Yield")
+        )
+
+        close = safe_float(
+            row.get("Closing")
+        )
+
+        return {
+            "date": str(
+                row.get(
+                    "Index Date",
+                    date_to_check.strftime(
+                        "%d-%m-%Y"
+                    )
+                )
+            ),
+            "pe": pe,
+            "pb": pb,
+            "dividend_yield": dividend_yield,
+            "close": close
+        }
+
+    return {
+        "date": "Unavailable",
+        "pe": None,
+        "pb": None,
+        "dividend_yield": None,
+        "close": None
     }
+
+
+# ============================================================
+# INDIA VIX
+# ============================================================
+
+def get_india_vix():
+
+    try:
+
+        data = yf.Ticker(
+            "^INDIAVIX"
+        ).history(
+            period="1mo",
+            interval="1d",
+            auto_adjust=False
+        )
+
+        if data.empty:
+            return None
+
+        close = data["Close"].dropna()
+
+        if close.empty:
+            return None
+
+        return round(
+            float(close.iloc[-1]),
+            2
+        )
+
+    except Exception as e:
+
+        print(
+            "India VIX error:",
+            e
+        )
+
+        return None
+
+
+# ============================================================
+# CONSTITUENT LISTS
+# ============================================================
+
+def get_nse_constituents(url):
 
     response = requests.get(
         url,
-        headers=headers,
+        headers=HEADERS,
         timeout=30
     )
 
@@ -281,72 +441,47 @@ def get_nse_csv(url):
 
     from io import StringIO
 
-    return pd.read_csv(
+    df = pd.read_csv(
         StringIO(response.text)
     )
+
+    symbols = []
+
+    for symbol in df["Symbol"].dropna():
+
+        symbols.append(
+            str(symbol).strip()
+            + ".NS"
+        )
+
+    return symbols
 
 
 def get_nifty100_symbols():
 
-    url = (
+    return get_nse_constituents(
         "https://archives.nseindia.com/"
         "content/indices/"
         "ind_nifty100list.csv"
     )
 
-    df = get_nse_csv(url)
-
-    symbols = []
-
-    for symbol in df["Symbol"].dropna():
-
-        symbols.append(
-            str(symbol).strip() + ".NS"
-        )
-
-    return symbols
-
 
 def get_midcap150_symbols():
 
-    url = (
+    return get_nse_constituents(
         "https://archives.nseindia.com/"
         "content/indices/"
         "ind_niftymidcap150list.csv"
     )
 
-    df = get_nse_csv(url)
-
-    symbols = []
-
-    for symbol in df["Symbol"].dropna():
-
-        symbols.append(
-            str(symbol).strip() + ".NS"
-        )
-
-    return symbols
-
 
 def get_smallcap250_symbols():
 
-    url = (
+    return get_nse_constituents(
         "https://archives.nseindia.com/"
         "content/indices/"
         "ind_niftysmallcap250list.csv"
     )
-
-    df = get_nse_csv(url)
-
-    symbols = []
-
-    for symbol in df["Symbol"].dropna():
-
-        symbols.append(
-            str(symbol).strip() + ".NS"
-        )
-
-    return symbols
 
 
 # ============================================================
@@ -356,19 +491,9 @@ def get_smallcap250_symbols():
 def calculate_breadth(symbols):
 
     total = 0
-
-    above_20 = 0
-
-    above_50 = 0
-
-    above_200 = 0
-
-    failed_symbols = []
-
-
-    # --------------------------------------------------------
-    # Process in batches
-    # --------------------------------------------------------
+    above20 = 0
+    above50 = 0
+    above200 = 0
 
     for start in range(
         0,
@@ -377,12 +502,14 @@ def calculate_breadth(symbols):
     ):
 
         batch = symbols[
-            start:start + BATCH_SIZE
+            start:
+            start + BATCH_SIZE
         ]
 
         print(
-            f"Downloading breadth batch "
-            f"{start + 1}-{start + len(batch)} "
+            f"Breadth "
+            f"{start + 1}-"
+            f"{start + len(batch)} "
             f"of {len(symbols)}"
         )
 
@@ -401,173 +528,148 @@ def calculate_breadth(symbols):
         except Exception as e:
 
             print(
-                "Batch download error:",
-                str(e)
+                "Batch error:",
+                e
             )
 
-            failed_symbols.extend(batch)
-
             continue
-
-
-        # ----------------------------------------------------
-        # Analyze each stock
-        # ----------------------------------------------------
 
         for symbol in batch:
 
             try:
 
-                if len(batch) == 1:
+                if (
+                    len(batch) == 1
+                    and "Close" in data
+                ):
 
-                    close_data = data["Close"]
+                    close = data["Close"]
 
                 else:
 
-                    if symbol not in data.columns.levels[0]:
-
-                        failed_symbols.append(symbol)
-
+                    if (
+                        not hasattr(
+                            data.columns,
+                            "levels"
+                        )
+                    ):
                         continue
 
-                    close_data = data[
+                    if (
+                        symbol
+                        not in data.columns.levels[0]
+                    ):
+                        continue
+
+                    close = data[
                         symbol
                     ]["Close"]
 
-
-                close_data = close_data.dropna()
-
-
-                if len(close_data) < 200:
-
-                    failed_symbols.append(symbol)
-
-                    continue
-
-
-                current_price = float(
-                    close_data.iloc[-1]
+                close = (
+                    close
+                    .dropna()
                 )
 
+                if len(close) < 200:
+                    continue
 
-                dma20 = float(
-                    close_data
+                current = float(
+                    close.iloc[-1]
+                )
+
+                dma20 = (
+                    close
                     .rolling(20)
                     .mean()
                     .iloc[-1]
                 )
 
-
-                dma50 = float(
-                    close_data
+                dma50 = (
+                    close
                     .rolling(50)
                     .mean()
                     .iloc[-1]
                 )
 
-
-                dma200 = float(
-                    close_data
+                dma200 = (
+                    close
                     .rolling(200)
                     .mean()
                     .iloc[-1]
                 )
 
-
                 total += 1
 
+                if current > dma20:
+                    above20 += 1
 
-                if current_price > dma20:
+                if current > dma50:
+                    above50 += 1
 
-                    above_20 += 1
+                if current > dma200:
+                    above200 += 1
 
-
-                if current_price > dma50:
-
-                    above_50 += 1
-
-
-                if current_price > dma200:
-
-                    above_200 += 1
-
-
-            except Exception as e:
-
-                print(
-                    f"Stock error {symbol}: {e}"
-                )
-
-                failed_symbols.append(symbol)
-
+            except Exception:
+                continue
 
         time.sleep(1)
-
-
-    # --------------------------------------------------------
-    # Percentages
-    # --------------------------------------------------------
 
     if total == 0:
 
         return {
-
             "total": 0,
-
             "above20": 0,
-
             "above50": 0,
-
             "above200": 0,
-
             "pct20": 0,
-
             "pct50": 0,
-
             "pct200": 0
         }
 
-
-    pct20 = (
-        above_20 / total
-    ) * 100
-
-
-    pct50 = (
-        above_50 / total
-    ) * 100
-
-
-    pct200 = (
-        above_200 / total
-    ) * 100
-
-
     return {
-
         "total": total,
-
-        "above20": above_20,
-
-        "above50": above_50,
-
-        "above200": above_200,
-
+        "above20": above20,
+        "above50": above50,
+        "above200": above200,
         "pct20": round(
-            pct20,
-            2
+            above20 / total * 100,
+            1
         ),
-
         "pct50": round(
-            pct50,
-            2
+            above50 / total * 100,
+            1
         ),
-
         "pct200": round(
-            pct200,
-            2
+            above200 / total * 100,
+            1
         )
     }
+
+
+# ============================================================
+# TECHNICAL SCORE
+# ============================================================
+
+def technical_score(data):
+
+    score = 0
+
+    if data["close"] > data["dma20"]:
+        score += 15
+
+    if data["close"] > data["dma50"]:
+        score += 20
+
+    if data["close"] > data["dma200"]:
+        score += 25
+
+    if data["dma20"] > data["dma50"]:
+        score += 15
+
+    if data["dma50"] > data["dma200"]:
+        score += 25
+
+    return score
 
 
 # ============================================================
@@ -577,70 +679,18 @@ def calculate_breadth(symbols):
 def breadth_score(breadth):
 
     if breadth["total"] == 0:
-
         return 0
 
-
-    # Weighted breadth score
-    #
-    # 20 DMA = 20%
-    # 50 DMA = 30%
-    # 200 DMA = 50%
-
-    score = (
-        breadth["pct20"] * 0.20
-        +
-        breadth["pct50"] * 0.30
-        +
-        breadth["pct200"] * 0.50
-    )
-
     return round(
-        min(max(score, 0), 100),
+        (
+            breadth["pct20"] * 0.20
+            +
+            breadth["pct50"] * 0.30
+            +
+            breadth["pct200"] * 0.50
+        ),
         1
     )
-
-
-# ============================================================
-# TREND SCORE
-# ============================================================
-
-def trend_score(data):
-
-    score = 0
-
-
-    # Price above 20 DMA
-    if data["close"] > data["dma20"]:
-
-        score += 15
-
-
-    # Price above 50 DMA
-    if data["close"] > data["dma50"]:
-
-        score += 20
-
-
-    # Price above 200 DMA
-    if data["close"] > data["dma200"]:
-
-        score += 25
-
-
-    # 20 DMA above 50 DMA
-    if data["dma20"] > data["dma50"]:
-
-        score += 15
-
-
-    # 50 DMA above 200 DMA
-    if data["dma50"] > data["dma200"]:
-
-        score += 25
-
-
-    return score
 
 
 # ============================================================
@@ -650,85 +700,244 @@ def trend_score(data):
 def rsi_score(rsi):
 
     if 55 <= rsi < 65:
-
         return 100
 
-    elif 50 <= rsi < 55:
-
+    if 50 <= rsi < 55:
         return 85
 
-    elif 65 <= rsi < 70:
-
+    if 65 <= rsi < 70:
         return 80
 
-    elif 45 <= rsi < 50:
-
+    if 45 <= rsi < 50:
         return 65
 
-    elif 40 <= rsi < 45:
-
+    if 40 <= rsi < 45:
         return 50
 
-    elif 70 <= rsi < 75:
-
+    if 70 <= rsi < 75:
         return 55
 
-    elif rsi >= 75:
-
+    if rsi >= 75:
         return 35
 
-    elif 30 <= rsi < 40:
-
+    if 30 <= rsi < 40:
         return 40
 
-    else:
-
-        return 25
+    return 25
 
 
 # ============================================================
-# SEGMENT SCORE
+# TECHNICAL SEGMENT SCORE
 # ============================================================
 
-def calculate_segment_score(
+def segment_technical_score(
     index_data,
     breadth
 ):
 
-    trend = trend_score(
+    tech = technical_score(
         index_data
-    )
-
-    rsi = rsi_score(
-        index_data["rsi"]
     )
 
     breadth_value = breadth_score(
         breadth
     )
 
+    rsi_value = rsi_score(
+        index_data["rsi"]
+    )
 
-    # --------------------------------------------------------
-    # Current weights
-    #
-    # Trend   = 40%
-    # Breadth = 40%
-    # RSI     = 20%
-    #
-    # Valuation will be added later.
-    # --------------------------------------------------------
-
-    score = (
-        trend * 0.40
+    return round(
+        tech * 0.40
         +
         breadth_value * 0.40
         +
-        rsi * 0.20
+        rsi_value * 0.20,
+        1
     )
 
 
+# ============================================================
+# VALUATION SCORE
+# ============================================================
+
+def valuation_score(
+    pe,
+    pb,
+    dividend_yield
+):
+
+    # --------------------------------------------------------
+    # PE
+    #
+    # Lower PE = better valuation.
+    #
+    # These are deliberately broad heuristic bands.
+    # They must later be validated with backtesting.
+    # --------------------------------------------------------
+
+    if pe is None:
+
+        pe_score = 50
+
+    elif pe <= 16:
+
+        pe_score = 100
+
+    elif pe <= 18:
+
+        pe_score = 90
+
+    elif pe <= 20.5:
+
+        pe_score = 80
+
+    elif pe <= 22:
+
+        pe_score = 70
+
+    elif pe <= 24:
+
+        pe_score = 55
+
+    elif pe <= 27:
+
+        pe_score = 40
+
+    else:
+
+        pe_score = 25
+
+
+    # --------------------------------------------------------
+    # PB
+    # --------------------------------------------------------
+
+    if pb is None:
+
+        pb_score = 50
+
+    elif pb <= 2:
+
+        pb_score = 100
+
+    elif pb <= 2.5:
+
+        pb_score = 90
+
+    elif pb <= 3:
+
+        pb_score = 80
+
+    elif pb <= 3.5:
+
+        pb_score = 70
+
+    elif pb <= 4:
+
+        pb_score = 55
+
+    elif pb <= 5:
+
+        pb_score = 40
+
+    else:
+
+        pb_score = 25
+
+
+    # --------------------------------------------------------
+    # Dividend Yield
+    # --------------------------------------------------------
+
+    if dividend_yield is None:
+
+        dy_score = 50
+
+    elif dividend_yield >= 2:
+
+        dy_score = 100
+
+    elif dividend_yield >= 1.5:
+
+        dy_score = 85
+
+    elif dividend_yield >= 1.2:
+
+        dy_score = 70
+
+    elif dividend_yield >= 1:
+
+        dy_score = 55
+
+    else:
+
+        dy_score = 40
+
+
     return round(
-        score,
+        pe_score * 0.55
+        +
+        pb_score * 0.30
+        +
+        dy_score * 0.15,
+        1
+    )
+
+
+# ============================================================
+# VIX SCORE
+# ============================================================
+
+def vix_score(vix):
+
+    if vix is None:
+        return 50
+
+    if vix < 12:
+        return 70
+
+    if vix < 15:
+        return 85
+
+    if vix < 18:
+        return 75
+
+    if vix < 22:
+        return 60
+
+    if vix < 28:
+        return 40
+
+    if vix < 35:
+        return 25
+
+    return 15
+
+
+# ============================================================
+# FINAL MARKET SCORE
+# ============================================================
+
+def final_market_score(
+    technical,
+    valuation,
+    vix
+):
+
+    score = (
+        technical * 0.50
+        +
+        valuation * 0.30
+        +
+        vix * 0.20
+    )
+
+    return round(
+        min(
+            max(score, 0),
+            100
+        ),
         1
     )
 
@@ -740,173 +949,184 @@ def calculate_segment_score(
 def score_status(score):
 
     if score >= 80:
-
         return "VERY STRONG 🟢"
 
-    elif score >= 70:
-
+    if score >= 70:
         return "STRONG 🟢"
 
-    elif score >= 60:
-
+    if score >= 60:
         return "POSITIVE 🟢"
 
-    elif score >= 50:
-
+    if score >= 50:
         return "NEUTRAL 🟡"
 
-    elif score >= 40:
-
+    if score >= 40:
         return "WEAK 🟠"
 
-    else:
-
-        return "VERY WEAK 🔴"
+    return "VERY WEAK 🔴"
 
 
 # ============================================================
-# ALLOCATION VIEW
+# ACTION ENGINE
 # ============================================================
 
-def allocation_view(
-    large_score,
-    mid_score,
-    small_score,
-    overall_score
+def get_action(score):
+
+    if score >= 80:
+        return "INVEST AGGRESSIVELY 🟢"
+
+    if score >= 70:
+        return "INVEST 🟢"
+
+    if score >= 60:
+        return "SELECTIVE INVEST 🟢"
+
+    if score >= 50:
+        return "HOLD / SIP 🟡"
+
+    if score >= 40:
+        return "REDUCE NEW INVESTMENT 🟠"
+
+    return "WAIT / DEFENSIVE 🔴"
+
+
+# ============================================================
+# ALLOCATION ENGINE
+# ============================================================
+
+def get_allocation(
+    overall,
+    large,
+    mid,
+    small
 ):
 
-    if overall_score >= 75:
+    # --------------------------------------------------------
+    # Base allocation
+    # --------------------------------------------------------
 
-        market_view = "RISK-ON 🟢"
+    if overall >= 80:
 
-    elif overall_score >= 60:
+        base = {
+            "large": 55,
+            "mid": 30,
+            "small": 15
+        }
 
-        market_view = "MODERATELY POSITIVE 🟢"
+    elif overall >= 70:
 
-    elif overall_score >= 50:
+        base = {
+            "large": 60,
+            "mid": 25,
+            "small": 15
+        }
 
-        market_view = "NEUTRAL 🟡"
+    elif overall >= 60:
 
-    elif overall_score >= 40:
+        base = {
+            "large": 65,
+            "mid": 25,
+            "small": 10
+        }
 
-        market_view = "CAUTIOUS 🟠"
+    elif overall >= 50:
+
+        base = {
+            "large": 70,
+            "mid": 20,
+            "small": 10
+        }
+
+    elif overall >= 40:
+
+        base = {
+            "large": 80,
+            "mid": 15,
+            "small": 5
+        }
 
     else:
 
-        market_view = "RISK-OFF 🔴"
+        base = {
+            "large": 90,
+            "mid": 10,
+            "small": 0
+        }
 
 
     # --------------------------------------------------------
-    # Large Cap
+    # Risk adjustment
+    #
+    # Small cap gets reduced if its own score is weak.
     # --------------------------------------------------------
 
-    if large_score >= 75:
+    if small < 50:
 
-        large_view = "HIGHER PRIORITY 🟢"
+        shift = min(
+            base["small"],
+            5
+        )
 
-    elif large_score >= 60:
-
-        large_view = "MODERATE 🟢"
-
-    elif large_score >= 50:
-
-        large_view = "NEUTRAL 🟡"
-
-    else:
-
-        large_view = "CAUTION 🔴"
+        base["small"] -= shift
+        base["large"] += shift
 
 
-    # --------------------------------------------------------
-    # Mid Cap
-    # --------------------------------------------------------
+    if mid < 50:
 
-    if mid_score >= 75:
+        shift = min(
+            base["mid"],
+            5
+        )
 
-        mid_view = "HIGHER PRIORITY 🟢"
-
-    elif mid_score >= 60:
-
-        mid_view = "MODERATE 🟢"
-
-    elif mid_score >= 50:
-
-        mid_view = "NEUTRAL 🟡"
-
-    else:
-
-        mid_view = "CAUTION 🔴"
+        base["mid"] -= shift
+        base["large"] += shift
 
 
-    # --------------------------------------------------------
-    # Small Cap
-    # --------------------------------------------------------
-
-    if small_score >= 75:
-
-        small_view = "HIGHER PRIORITY 🟢"
-
-    elif small_score >= 60:
-
-        small_view = "MODERATE 🟢"
-
-    elif small_score >= 50:
-
-        small_view = "NEUTRAL 🟡"
-
-    else:
-
-        small_view = "CAUTION 🔴"
-
-
-    return (
-        market_view,
-        large_view,
-        mid_view,
-        small_view
-    )
+    return base
 
 
 # ============================================================
-# MAIN PROGRAM
+# MAIN
 # ============================================================
 
 try:
 
-    print("Starting AI Wealth Manager...")
+    print(
+        "======================================"
+    )
+
+    print(
+        "AI WEALTH MANAGER STARTED"
+    )
+
+    print(
+        "======================================"
+    )
 
 
     # ========================================================
     # INDEX DATA
     # ========================================================
 
-    print("Downloading index data...")
-
-
     nifty50 = get_index_data(
         "^NSEI"
     )
-
 
     nifty100 = get_index_data(
         "^CNX100"
     )
 
-
     midcap150 = get_index_data(
         "NIFTYMIDCAP150.NS"
     )
-
 
     smallcap250 = get_index_data(
         "NIFTYSMLCAP250.NS"
     )
 
-
     nifty500 = get_index_data(
         "^CRSLDX"
     )
-
 
     sensex = get_index_data(
         "^BSESN"
@@ -914,65 +1134,104 @@ try:
 
 
     # ========================================================
+    # VALUATION
+    # ========================================================
+
+    print(
+        "Getting NSE valuation..."
+    )
+
+    valuation = get_nse_valuation()
+
+
+    pe = valuation["pe"]
+
+    pb = valuation["pb"]
+
+    dividend_yield = (
+        valuation["dividend_yield"]
+    )
+
+
+    print(
+        "Nifty 50 PE:",
+        pe
+    )
+
+    print(
+        "Nifty 50 PB:",
+        pb
+    )
+
+    print(
+        "Dividend Yield:",
+        dividend_yield
+    )
+
+
+    # ========================================================
+    # INDIA VIX
+    # ========================================================
+
+    print(
+        "Getting India VIX..."
+    )
+
+    india_vix = get_india_vix()
+
+
+    print(
+        "India VIX:",
+        india_vix
+    )
+
+
+    # ========================================================
     # CONSTITUENTS
     # ========================================================
 
-    print("Downloading Nifty 100 constituents...")
+    print(
+        "Getting constituents..."
+    )
 
     nifty100_symbols = (
         get_nifty100_symbols()
     )
 
-
-    print("Downloading Midcap 150 constituents...")
-
     midcap150_symbols = (
         get_midcap150_symbols()
     )
-
-
-    print("Downloading Smallcap 250 constituents...")
 
     smallcap250_symbols = (
         get_smallcap250_symbols()
     )
 
 
-    print(
-        "Nifty 100 stocks:",
-        len(nifty100_symbols)
-    )
-
-    print(
-        "Midcap 150 stocks:",
-        len(midcap150_symbols)
-    )
-
-    print(
-        "Smallcap 250 stocks:",
-        len(smallcap250_symbols)
-    )
-
-
     # ========================================================
-    # MARKET BREADTH
+    # BREADTH
     # ========================================================
 
-    print("Calculating Large Cap breadth...")
+    print(
+        "Calculating Large Cap breadth..."
+    )
 
     large_breadth = calculate_breadth(
         nifty100_symbols
     )
 
 
-    print("Calculating Mid Cap breadth...")
+    print(
+        "Calculating Mid Cap breadth..."
+    )
 
     mid_breadth = calculate_breadth(
         midcap150_symbols
     )
 
 
-    print("Calculating Small Cap breadth...")
+    print(
+        "Calculating Small Cap breadth..."
+    )
 
     small_breadth = calculate_breadth(
         smallcap250_symbols
@@ -980,52 +1239,116 @@ try:
 
 
     # ========================================================
-    # SCORES
+    # TECHNICAL SCORES
     # ========================================================
 
-    print("Calculating segment scores...")
+    large_technical = (
+        segment_technical_score(
+            nifty100,
+            large_breadth
+        )
+    )
 
+    mid_technical = (
+        segment_technical_score(
+            midcap150,
+            mid_breadth
+        )
+    )
 
-    large_score = calculate_segment_score(
-        nifty100,
-        large_breadth
+    small_technical = (
+        segment_technical_score(
+            smallcap250,
+            small_breadth
+        )
     )
 
 
-    mid_score = calculate_segment_score(
-        midcap150,
-        mid_breadth
+    # ========================================================
+    # VALUATION
+    # ========================================================
+
+    valuation = valuation_score(
+        pe,
+        pb,
+        dividend_yield
     )
 
 
-    small_score = calculate_segment_score(
-        smallcap250,
-        small_breadth
+    # ========================================================
+    # VIX
+    # ========================================================
+
+    vix = vix_score(
+        india_vix
     )
 
 
-    # Overall market score
-    #
-    # Weighted toward Nifty 500 + segment scores.
+    # ========================================================
+    # OVERALL TECHNICAL SCORE
+    # ========================================================
 
-    overall_score = round(
+    overall_technical = round(
         (
-            nifty500_score := (
-                trend_score(nifty500) * 0.40
-                +
-                breadth_score(
-                    large_breadth
-                ) * 0.20
-                +
-                breadth_score(
-                    mid_breadth
-                ) * 0.20
-                +
-                breadth_score(
-                    small_breadth
-                ) * 0.20
-            )
+            large_technical * 0.40
+            +
+            mid_technical * 0.30
+            +
+            small_technical * 0.20
+            +
+            technical_score(
+                nifty500
+            ) * 0.10
         ),
+        1
+    )
+
+
+    # ========================================================
+    # FINAL OVERALL SCORE
+    # ========================================================
+
+    overall_score = final_market_score(
+        overall_technical,
+        valuation,
+        vix
+    )
+
+
+    # ========================================================
+    # SEGMENT FINAL SCORES
+    #
+    # Segment valuation is currently based on
+    # Nifty 50 valuation as a market-wide proxy.
+    #
+    # Later we can add individual segment PE/PB
+    # directly from NSE.
+    # ========================================================
+
+    large_score = round(
+        large_technical * 0.70
+        +
+        valuation * 0.20
+        +
+        vix * 0.10,
+        1
+    )
+
+    mid_score = round(
+        mid_technical * 0.70
+        +
+        valuation * 0.20
+        +
+        vix * 0.10,
+        1
+    )
+
+    small_score = round(
+        small_technical * 0.70
+        +
+        valuation * 0.20
+        +
+        vix * 0.10,
         1
     )
 
@@ -1033,6 +1356,10 @@ try:
     # ========================================================
     # STATUS
     # ========================================================
+
+    overall_status = score_status(
+        overall_score
+    )
 
     large_status = score_status(
         large_score
@@ -1046,25 +1373,37 @@ try:
         small_score
     )
 
-    overall_status = score_status(
+
+    # ========================================================
+    # ACTION
+    # ========================================================
+
+    overall_action = get_action(
         overall_score
+    )
+
+    large_action = get_action(
+        large_score
+    )
+
+    mid_action = get_action(
+        mid_score
+    )
+
+    small_action = get_action(
+        small_score
     )
 
 
     # ========================================================
-    # ALLOCATION VIEW
+    # ALLOCATION
     # ========================================================
 
-    (
-        market_view,
-        large_view,
-        mid_view,
-        small_view
-    ) = allocation_view(
+    allocation = get_allocation(
+        overall_score,
         large_score,
         mid_score,
-        small_score,
-        overall_score
+        small_score
     )
 
 
@@ -1072,48 +1411,92 @@ try:
     # TELEGRAM REPORT
     # ========================================================
 
+    pe_text = (
+        f"{pe:.2f}"
+        if pe is not None
+        else "N/A"
+    )
+
+    pb_text = (
+        f"{pb:.2f}"
+        if pb is not None
+        else "N/A"
+    )
+
+    dy_text = (
+        f"{dividend_yield:.2f}%"
+        if dividend_yield is not None
+        else "N/A"
+    )
+
+    vix_text = (
+        f"{india_vix:.2f}"
+        if india_vix is not None
+        else "N/A"
+    )
+
+
     message = f"""
 🤖 AI WEALTH MANAGER
 📊 DAILY MARKET INTELLIGENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🌐 OVERALL MARKET
+🎯 FINAL MARKET SCORE
 
-NIFTY 500
-Price: {nifty500['close']}
-Daily Change: {nifty500['change']}%
-
-20 DMA: {nifty500['dma20']}
-50 DMA: {nifty500['dma50']}
-200 DMA: {nifty500['dma200']}
-
-Price vs 50 DMA:
-{nifty500['vs50']}%
-
-Price vs 200 DMA:
-{nifty500['vs200']}%
-
-RSI 14:
-{nifty500['rsi']} ({nifty500['rsi_status']})
-
-Trend:
-{nifty500['trend']}
-
-🎯 OVERALL MARKET SCORE
 {overall_score}/100
 {overall_status}
+
+ACTION:
+{overall_action}
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌐 MARKET VALUATION
+
+NIFTY 50 PE:
+{pe_text}
+
+NIFTY 50 PB:
+{pb_text}
+
+DIVIDEND YIELD:
+{dy_text}
+
+VALUATION SCORE:
+{valuation}/100
+
+VALUATION DATA DATE:
+{valuation['date']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚡ INDIA VIX
+
+Current VIX:
+{vix_text}
+
+VIX SCORE:
+{vix}/100
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🟢 LARGE CAP
 NIFTY 100
 
-Price: {nifty100['close']}
-Daily Change: {nifty100['change']}%
+Price:
+{nifty100['close']}
 
-20 DMA: {nifty100['dma20']}
-50 DMA: {nifty100['dma50']}
-200 DMA: {nifty100['dma200']}
+Daily Change:
+{nifty100['change']}%
+
+20 DMA:
+{nifty100['dma20']}
+
+50 DMA:
+{nifty100['dma50']}
+
+200 DMA:
+{nifty100['dma200']}
 
 Price vs 50 DMA:
 {nifty100['vs50']}%
@@ -1121,44 +1504,52 @@ Price vs 50 DMA:
 Price vs 200 DMA:
 {nifty100['vs200']}%
 
-RSI 14:
-{nifty100['rsi']} ({nifty100['rsi_status']})
+RSI:
+{nifty100['rsi']}
+({nifty100['rsi_status']})
 
 Trend:
 {nifty100['trend']}
 
-📈 BREADTH
+Breadth >20 DMA:
+{large_breadth['pct20']}%
+
+Breadth >50 DMA:
+{large_breadth['pct50']}%
+
+Breadth >200 DMA:
+{large_breadth['pct200']}%
 
 Stocks Analyzed:
 {large_breadth['total']}
 
-Above 20 DMA:
-{large_breadth['above20']}
-({large_breadth['pct20']}%)
-
-Above 50 DMA:
-{large_breadth['above50']}
-({large_breadth['pct50']}%)
-
-Above 200 DMA:
-{large_breadth['above200']}
-({large_breadth['pct200']}%)
-
-🎯 LARGE CAP SCORE
+🎯 LARGE CAP SCORE:
 {large_score}/100
+
 {large_status}
+
+ACTION:
+{large_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🟡 MID CAP
 NIFTY MIDCAP 150
 
-Price: {midcap150['close']}
-Daily Change: {midcap150['change']}%
+Price:
+{midcap150['close']}
 
-20 DMA: {midcap150['dma20']}
-50 DMA: {midcap150['dma50']}
-200 DMA: {midcap150['dma200']}
+Daily Change:
+{midcap150['change']}%
+
+20 DMA:
+{midcap150['dma20']}
+
+50 DMA:
+{midcap150['dma50']}
+
+200 DMA:
+{midcap150['dma200']}
 
 Price vs 50 DMA:
 {midcap150['vs50']}%
@@ -1166,44 +1557,52 @@ Price vs 50 DMA:
 Price vs 200 DMA:
 {midcap150['vs200']}%
 
-RSI 14:
-{midcap150['rsi']} ({midcap150['rsi_status']})
+RSI:
+{midcap150['rsi']}
+({midcap150['rsi_status']})
 
 Trend:
 {midcap150['trend']}
 
-📈 BREADTH
+Breadth >20 DMA:
+{mid_breadth['pct20']}%
+
+Breadth >50 DMA:
+{mid_breadth['pct50']}%
+
+Breadth >200 DMA:
+{mid_breadth['pct200']}%
 
 Stocks Analyzed:
 {mid_breadth['total']}
 
-Above 20 DMA:
-{mid_breadth['above20']}
-({mid_breadth['pct20']}%)
-
-Above 50 DMA:
-{mid_breadth['above50']}
-({mid_breadth['pct50']}%)
-
-Above 200 DMA:
-{mid_breadth['above200']}
-({mid_breadth['pct200']}%)
-
-🎯 MID CAP SCORE
+🎯 MID CAP SCORE:
 {mid_score}/100
+
 {mid_status}
+
+ACTION:
+{mid_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🔴 SMALL CAP
 NIFTY SMALLCAP 250
 
-Price: {smallcap250['close']}
-Daily Change: {smallcap250['change']}%
+Price:
+{smallcap250['close']}
 
-20 DMA: {smallcap250['dma20']}
-50 DMA: {smallcap250['dma50']}
-200 DMA: {smallcap250['dma200']}
+Daily Change:
+{smallcap250['change']}%
+
+20 DMA:
+{smallcap250['dma20']}
+
+50 DMA:
+{smallcap250['dma50']}
+
+200 DMA:
+{smallcap250['dma200']}
 
 Price vs 50 DMA:
 {smallcap250['vs50']}%
@@ -1211,90 +1610,126 @@ Price vs 50 DMA:
 Price vs 200 DMA:
 {smallcap250['vs200']}%
 
-RSI 14:
-{smallcap250['rsi']} ({smallcap250['rsi_status']})
+RSI:
+{smallcap250['rsi']}
+({smallcap250['rsi_status']})
 
 Trend:
 {smallcap250['trend']}
 
-📈 BREADTH
+Breadth >20 DMA:
+{small_breadth['pct20']}%
+
+Breadth >50 DMA:
+{small_breadth['pct50']}%
+
+Breadth >200 DMA:
+{small_breadth['pct200']}%
 
 Stocks Analyzed:
 {small_breadth['total']}
 
-Above 20 DMA:
-{small_breadth['above20']}
-({small_breadth['pct20']}%)
-
-Above 50 DMA:
-{small_breadth['above50']}
-({small_breadth['pct50']}%)
-
-Above 200 DMA:
-{small_breadth['above200']}
-({small_breadth['pct200']}%)
-
-🎯 SMALL CAP SCORE
+🎯 SMALL CAP SCORE:
 {small_score}/100
+
 {small_status}
+
+ACTION:
+{small_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🇮🇳 NIFTY 50
 
-Price: {nifty50['close']}
-Daily Change: {nifty50['change']}%
+Price:
+{nifty50['close']}
 
-RSI: {nifty50['rsi']}
-Trend: {nifty50['trend']}
+Daily Change:
+{nifty50['change']}%
 
-🇮🇳 SENSEX
+RSI:
+{nifty50['rsi']}
 
-Price: {sensex['close']}
-Daily Change: {sensex['change']}%
-
-RSI: {sensex['rsi']}
-Trend: {sensex['trend']}
+Trend:
+{nifty50['trend']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 ALLOCATION VIEW
+🇮🇳 SENSEX
 
-Overall Market:
-{market_view}
+Price:
+{sensex['close']}
 
-🟢 Large Cap:
-{large_view}
+Daily Change:
+{sensex['change']}%
 
-🟡 Mid Cap:
-{mid_view}
+RSI:
+{sensex['rsi']}
 
-🔴 Small Cap:
-{small_view}
+Trend:
+{sensex['trend']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 SUGGESTED ALLOCATION
+
+🟢 LARGE CAP:
+{allocation['large']}%
+
+🟡 MID CAP:
+{allocation['mid']}%
+
+🔴 SMALL CAP:
+{allocation['small']}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 DECISION FRAMEWORK
+
+Overall Score ≥ 80
+→ Aggressive Investment
+
+70–79
+→ Investment
+
+60–69
+→ Selective Investment
+
+50–59
+→ Hold / Continue SIP
+
+40–49
+→ Reduce New Investment
+
+Below 40
+→ Wait / Defensive
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ IMPORTANT
 
-This is a rule-based market
-analysis system.
+This is a quantitative
+decision-support system.
 
-It is NOT a guarantee of
-investment returns.
+It is NOT a guaranteed
+profit system.
 
-Valuation, VIX, earnings,
-macro indicators and
-historical backtesting will
-be added in the next phase.
+PE/PB thresholds are
+initial rules and must be
+validated through
+historical backtesting.
+
+━━━━━━━━━━━━━━━━━━━━━━━━
 
 🤖 GitHub Actions Active
-📱 Telegram Alert Active
+📱 Telegram Active
+📊 AI Wealth Manager
 ━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 
     # ========================================================
-    # SEND TELEGRAM
+    # SEND
     # ========================================================
 
     send_telegram(
@@ -1303,7 +1738,15 @@ be added in the next phase.
 
 
     print(
-        "AI Wealth Manager completed successfully."
+        "======================================"
+    )
+
+    print(
+        "AI WEALTH MANAGER COMPLETED"
+    )
+
+    print(
+        "======================================"
     )
 
 
@@ -1317,11 +1760,9 @@ except Exception as e:
 Please check GitHub Actions logs.
 """
 
-
     print(
         error_message
     )
-
 
     try:
 
