@@ -80,7 +80,7 @@ def send_telegram(message):
 
 
 # ============================================================
-# INDEX PRICE / TECHNICAL DATA
+# INDEX DATA
 # ============================================================
 
 def get_index_data(symbol):
@@ -104,7 +104,6 @@ def get_index_data(symbol):
         )
 
     current = float(close.iloc[-1])
-
     previous = float(close.iloc[-2])
 
     change = (
@@ -138,11 +137,9 @@ def get_index_data(symbol):
     delta = close.diff()
 
     gain = delta.clip(lower=0)
-
     loss = -delta.clip(upper=0)
 
     avg_gain = gain.rolling(14).mean()
-
     avg_loss = loss.rolling(14).mean()
 
     rs = avg_gain / avg_loss.replace(
@@ -224,7 +221,7 @@ def get_index_data(symbol):
 
 
 # ============================================================
-# NSE INDEX DAILY CSV
+# NSE INDEX CSV
 # ============================================================
 
 def get_nse_index_csv(date_obj):
@@ -254,9 +251,7 @@ def get_nse_index_csv(date_obj):
         from io import StringIO
 
         df = pd.read_csv(
-            StringIO(
-                response.text
-            )
+            StringIO(response.text)
         )
 
         return df
@@ -272,18 +267,18 @@ def get_nse_index_csv(date_obj):
 
 
 # ============================================================
-# GET LATEST NSE VALUATION DATA
+# NSE VALUATION DATA
 # ============================================================
 
 def get_nse_valuation():
 
     today = datetime.now()
 
-    # Search recent trading days.
     for days_back in range(0, 10):
 
         date_to_check = (
-            today - timedelta(
+            today
+            - timedelta(
                 days=days_back
             )
         )
@@ -295,7 +290,6 @@ def get_nse_valuation():
         if df is None:
             continue
 
-        # Normalize column names
         df.columns = [
             str(c).strip()
             for c in df.columns
@@ -304,7 +298,6 @@ def get_nse_valuation():
         if "Index Name" not in df.columns:
             continue
 
-        # Search Nifty 50
         rows = df[
             df["Index Name"]
             .astype(str)
@@ -426,7 +419,7 @@ def get_india_vix():
 
 
 # ============================================================
-# CONSTITUENT LISTS
+# CONSTITUENTS
 # ============================================================
 
 def get_nse_constituents(url):
@@ -447,11 +440,25 @@ def get_nse_constituents(url):
 
     symbols = []
 
+    if "Symbol" not in df.columns:
+        raise Exception(
+            "Symbol column not found in NSE file."
+        )
+
     for symbol in df["Symbol"].dropna():
 
-        symbols.append(
-            str(symbol).strip()
-            + ".NS"
+        symbol = str(symbol).strip()
+
+        if symbol:
+
+            symbols.append(
+                symbol + ".NS"
+            )
+
+    if not symbols:
+
+        raise Exception(
+            "No constituents found."
         )
 
     return symbols
@@ -547,11 +554,9 @@ def calculate_breadth(symbols):
 
                 else:
 
-                    if (
-                        not hasattr(
-                            data.columns,
-                            "levels"
-                        )
+                    if not hasattr(
+                        data.columns,
+                        "levels"
                     ):
                         continue
 
@@ -609,7 +614,12 @@ def calculate_breadth(symbols):
                 if current > dma200:
                     above200 += 1
 
-            except Exception:
+            except Exception as e:
+
+                print(
+                    f"Skipping {symbol}: {e}"
+                )
+
                 continue
 
         time.sleep(1)
@@ -727,7 +737,7 @@ def rsi_score(rsi):
 
 
 # ============================================================
-# TECHNICAL SEGMENT SCORE
+# SEGMENT TECHNICAL SCORE
 # ============================================================
 
 def segment_technical_score(
@@ -761,19 +771,14 @@ def segment_technical_score(
 # VALUATION SCORE
 # ============================================================
 
-def valuation_score(
+def calculate_valuation_score(
     pe,
     pb,
     dividend_yield
 ):
 
     # --------------------------------------------------------
-    # PE
-    #
-    # Lower PE = better valuation.
-    #
-    # These are deliberately broad heuristic bands.
-    # They must later be validated with backtesting.
+    # PE SCORE
     # --------------------------------------------------------
 
     if pe is None:
@@ -810,7 +815,7 @@ def valuation_score(
 
 
     # --------------------------------------------------------
-    # PB
+    # PB SCORE
     # --------------------------------------------------------
 
     if pb is None:
@@ -847,7 +852,7 @@ def valuation_score(
 
 
     # --------------------------------------------------------
-    # Dividend Yield
+    # DIVIDEND YIELD SCORE
     # --------------------------------------------------------
 
     if dividend_yield is None:
@@ -943,7 +948,7 @@ def final_market_score(
 
 
 # ============================================================
-# SCORE STATUS
+# STATUS
 # ============================================================
 
 def score_status(score):
@@ -967,7 +972,7 @@ def score_status(score):
 
 
 # ============================================================
-# ACTION ENGINE
+# ACTION
 # ============================================================
 
 def get_action(score):
@@ -991,7 +996,7 @@ def get_action(score):
 
 
 # ============================================================
-# ALLOCATION ENGINE
+# ALLOCATION
 # ============================================================
 
 def get_allocation(
@@ -1001,13 +1006,9 @@ def get_allocation(
     small
 ):
 
-    # --------------------------------------------------------
-    # Base allocation
-    # --------------------------------------------------------
-
     if overall >= 80:
 
-        base = {
+        allocation = {
             "large": 55,
             "mid": 30,
             "small": 15
@@ -1015,7 +1016,7 @@ def get_allocation(
 
     elif overall >= 70:
 
-        base = {
+        allocation = {
             "large": 60,
             "mid": 25,
             "small": 15
@@ -1023,7 +1024,7 @@ def get_allocation(
 
     elif overall >= 60:
 
-        base = {
+        allocation = {
             "large": 65,
             "mid": 25,
             "small": 10
@@ -1031,7 +1032,7 @@ def get_allocation(
 
     elif overall >= 50:
 
-        base = {
+        allocation = {
             "large": 70,
             "mid": 20,
             "small": 10
@@ -1039,7 +1040,7 @@ def get_allocation(
 
     elif overall >= 40:
 
-        base = {
+        allocation = {
             "large": 80,
             "mid": 15,
             "small": 5
@@ -1047,42 +1048,40 @@ def get_allocation(
 
     else:
 
-        base = {
+        allocation = {
             "large": 90,
             "mid": 10,
             "small": 0
         }
 
 
-    # --------------------------------------------------------
-    # Risk adjustment
-    #
-    # Small cap gets reduced if its own score is weak.
-    # --------------------------------------------------------
+    # Small cap protection
 
     if small < 50:
 
         shift = min(
-            base["small"],
+            allocation["small"],
             5
         )
 
-        base["small"] -= shift
-        base["large"] += shift
+        allocation["small"] -= shift
+        allocation["large"] += shift
 
+
+    # Mid cap protection
 
     if mid < 50:
 
         shift = min(
-            base["mid"],
+            allocation["mid"],
             5
         )
 
-        base["mid"] -= shift
-        base["large"] += shift
+        allocation["mid"] -= shift
+        allocation["large"] += shift
 
 
-    return base
+    return allocation
 
 
 # ============================================================
@@ -1107,6 +1106,8 @@ try:
     # ========================================================
     # INDEX DATA
     # ========================================================
+
+    print("Getting index data...")
 
     nifty50 = get_index_data(
         "^NSEI"
@@ -1134,24 +1135,22 @@ try:
 
 
     # ========================================================
-    # VALUATION
+    # NSE VALUATION DATA
     # ========================================================
 
     print(
         "Getting NSE valuation..."
     )
 
-    valuation = get_nse_valuation()
+    valuation_data = get_nse_valuation()
 
+    pe = valuation_data["pe"]
 
-    pe = valuation["pe"]
-
-    pb = valuation["pb"]
+    pb = valuation_data["pb"]
 
     dividend_yield = (
-        valuation["dividend_yield"]
+        valuation_data["dividend_yield"]
     )
-
 
     print(
         "Nifty 50 PE:",
@@ -1178,7 +1177,6 @@ try:
     )
 
     india_vix = get_india_vix()
-
 
     print(
         "India VIX:",
@@ -1265,21 +1263,26 @@ try:
 
 
     # ========================================================
-    # VALUATION
+    # VALUATION SCORE
+    #
+    # IMPORTANT:
+    # Do NOT overwrite valuation_data.
     # ========================================================
 
-    valuation = valuation_score(
-        pe,
-        pb,
-        dividend_yield
+    valuation_score_value = (
+        calculate_valuation_score(
+            pe,
+            pb,
+            dividend_yield
+        )
     )
 
 
     # ========================================================
-    # VIX
+    # VIX SCORE
     # ========================================================
 
-    vix = vix_score(
+    vix_score_value = vix_score(
         india_vix
     )
 
@@ -1287,6 +1290,12 @@ try:
     # ========================================================
     # OVERALL TECHNICAL SCORE
     # ========================================================
+
+    nifty500_technical = (
+        technical_score(
+            nifty500
+        )
+    )
 
     overall_technical = round(
         (
@@ -1296,9 +1305,7 @@ try:
             +
             small_technical * 0.20
             +
-            technical_score(
-                nifty500
-            ) * 0.10
+            nifty500_technical * 0.10
         ),
         1
     )
@@ -1310,45 +1317,39 @@ try:
 
     overall_score = final_market_score(
         overall_technical,
-        valuation,
-        vix
+        valuation_score_value,
+        vix_score_value
     )
 
 
     # ========================================================
-    # SEGMENT FINAL SCORES
-    #
-    # Segment valuation is currently based on
-    # Nifty 50 valuation as a market-wide proxy.
-    #
-    # Later we can add individual segment PE/PB
-    # directly from NSE.
+    # SEGMENT SCORES
     # ========================================================
 
     large_score = round(
         large_technical * 0.70
         +
-        valuation * 0.20
+        valuation_score_value * 0.20
         +
-        vix * 0.10,
+        vix_score_value * 0.10,
         1
     )
 
     mid_score = round(
         mid_technical * 0.70
         +
-        valuation * 0.20
+        valuation_score_value * 0.20
         +
-        vix * 0.10,
+        vix_score_value * 0.10,
         1
     )
 
     small_score = round(
         small_technical * 0.70
         +
-        valuation * 0.20
+        valuation_score_value * 0.20
         +
-        vix * 0.10,
+        vix_score_value * 0.10,
         1
     )
 
@@ -1375,7 +1376,7 @@ try:
 
 
     # ========================================================
-    # ACTION
+    # ACTIONS
     # ========================================================
 
     overall_action = get_action(
@@ -1408,7 +1409,7 @@ try:
 
 
     # ========================================================
-    # TELEGRAM REPORT
+    # SAFE TEXT VALUES
     # ========================================================
 
     pe_text = (
@@ -1435,6 +1436,10 @@ try:
         else "N/A"
     )
 
+
+    # ========================================================
+    # TELEGRAM REPORT
+    # ========================================================
 
     message = f"""
 🤖 AI WEALTH MANAGER
@@ -1463,10 +1468,10 @@ DIVIDEND YIELD:
 {dy_text}
 
 VALUATION SCORE:
-{valuation}/100
+{valuation_score_value}/100
 
 VALUATION DATA DATE:
-{valuation['date']}
+{valuation_data['date']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1476,7 +1481,7 @@ Current VIX:
 {vix_text}
 
 VIX SCORE:
-{vix}/100
+{vix_score_value}/100
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1686,37 +1691,22 @@ Trend:
 
 📌 DECISION FRAMEWORK
 
-Overall Score ≥ 80
-→ Aggressive Investment
-
-70–79
-→ Investment
-
-60–69
-→ Selective Investment
-
-50–59
-→ Hold / Continue SIP
-
-40–49
-→ Reduce New Investment
-
-Below 40
-→ Wait / Defensive
+80+  → Aggressive Investment
+70–79 → Investment
+60–69 → Selective Investment
+50–59 → Hold / Continue SIP
+40–49 → Reduce New Investment
+<40 → Wait / Defensive
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ IMPORTANT
 
-This is a quantitative
-decision-support system.
+Quantitative decision-support only.
+Not a guaranteed-profit system.
 
-It is NOT a guaranteed
-profit system.
-
-PE/PB thresholds are
-initial rules and must be
-validated through
+Valuation thresholds are initial
+rules and will be validated through
 historical backtesting.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1729,7 +1719,7 @@ historical backtesting.
 
 
     # ========================================================
-    # SEND
+    # SEND TELEGRAM
     # ========================================================
 
     send_telegram(
