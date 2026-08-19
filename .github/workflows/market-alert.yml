@@ -1,7 +1,10 @@
 name: Market Alert
 
-on:
+  on:
   workflow_dispatch
+
+  schedule:
+    - cron: '30 3 * * *'
 
 jobs:
   market-check:
