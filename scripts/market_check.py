@@ -152,6 +152,44 @@ def get_index_data(symbol):
     )
 
     # --------------------------------------------------------
+    # MONTHLY RSI 14
+    # --------------------------------------------------------
+
+    monthly = yf.Ticker(symbol).history(
+        period="10y",
+        interval="1mo",
+        auto_adjust=False
+    )
+
+    monthly_close = monthly["Close"].dropna()
+
+    if len(monthly_close) < 20:
+        raise Exception(
+            f"Not enough monthly data for {symbol}"
+        )
+
+    monthly_delta = monthly_close.diff()
+    monthly_gain = monthly_delta.clip(lower=0)
+    monthly_loss = -monthly_delta.clip(upper=0)
+
+    monthly_avg_gain = monthly_gain.rolling(14).mean()
+    monthly_avg_loss = monthly_loss.rolling(14).mean()
+
+    monthly_rs = (
+        monthly_avg_gain
+        / monthly_avg_loss.replace(0, np.nan)
+    )
+
+    monthly_rsi_series = (
+        100
+        - (100 / (1 + monthly_rs))
+    )
+
+    monthly_rsi = float(
+        monthly_rsi_series.dropna().iloc[-1]
+    )
+
+    # --------------------------------------------------------
     # RSI STATUS
     # --------------------------------------------------------
 
@@ -206,6 +244,7 @@ def get_index_data(symbol):
         "vs50": round(float(vs50), 2),
         "vs200": round(float(vs200), 2),
         "rsi": round(rsi, 2),
+        "monthly_rsi": round(monthly_rsi, 2),
         "rsi_status": rsi_status,
         "trend": trend
     }
@@ -489,7 +528,6 @@ def get_smallcap250_symbols():
 def calculate_breadth(symbols):
 
     total = 0
-    above20 = 0
     above50 = 0
     above200 = 0
 
@@ -609,23 +647,16 @@ def calculate_breadth(symbols):
 
         return {
             "total": 0,
-            "above20": 0,
             "above50": 0,
             "above200": 0,
-            "pct20": 0,
             "pct50": 0,
             "pct200": 0
         }
 
     return {
         "total": total,
-        "above20": above20,
         "above50": above50,
         "above200": above200,
-        "pct20": round(
-            above20 / total * 100,
-            1
-        ),
         "pct50": round(
             above50 / total * 100,
             1
@@ -667,7 +698,8 @@ def breadth_score(breadth):
         return 0
 
     return round(
-        breadth["pct50"] * 0.40 +
+        breadth["pct50"] * 0.40
+        +
         breadth["pct200"] * 0.60,
         1
     )
@@ -1054,38 +1086,65 @@ def get_allocation(
     return allocation
 
 
-def investment_strategy(score, price, dma200, rsi):
+# ============================================================
+# INVESTMENT STRATEGY
+# ============================================================
 
-    if score >= 65 or (price < dma200 and rsi < 45):
+def investment_strategy(
+    score,
+    price,
+    dma200,
+    monthly_rsi
+):
+
+    if (
+        score >= 65
+        or (
+            price < dma200
+            and monthly_rsi < 45
+        )
+    ):
         return {
             "stage": "🟢 DARK GREEN",
             "sip": "100%",
             "lumpsum": "100%",
-            "action": "AGGRESSIVE BUY"
+            "action": (
+                "AGGRESSIVE BUY: SIP + ALL AVAILABLE SURPLUS CASH | "
+                "Loan Prepayment 0%"
+            )
         }
 
-    elif score >= 51:
+    elif (
+        51 <= score <= 64
+        or price < dma200
+    ):
         return {
             "stage": "🟢 LIGHT GREEN",
             "sip": "100%",
             "lumpsum": "50%",
-            "action": "BUY"
+            "action": "BUY | Loan Prepayment 0%"
         }
 
-    elif score >= 40:
+    elif 40 <= score <= 50:
         return {
             "stage": "🟡 YELLOW",
             "sip": "100%",
             "lumpsum": "0%",
-            "action": "50% HOME LOAN PREPAYMENT"
+            "action": "Continue SIP | 50% Home Loan Prepayment"
         }
 
-    elif score >= 25 or (60 < rsi < 70):
+    elif (
+        25 <= score <= 39
+        or (
+            monthly_rsi > 60
+            and monthly_rsi < 70
+        )
+    ):
         return {
             "stage": "🟠 ORANGE",
             "sip": "100%",
             "lumpsum": "0%",
-            "action": "70% LOAN PREPAYMENT / Buy GOLD ETF"
+            "action": "70% Home Loan Prepayment / Gold ETF"
         }
 
     else:
@@ -1093,7 +1152,7 @@ def investment_strategy(score, price, dma200, rsi):
             "stage": "🔴 RED",
             "sip": "0%",
             "lumpsum": "0%",
-            "action": "SELL 20% SMALLCAP"
+            "action": "Rebalance | SELL 20% Small Cap → Loan Prepayment"
         }
 
 
@@ -1420,12 +1479,17 @@ try:
         small_score
     )
 
+
+    # ========================================================
+    # INVESTMENT STRATEGY
+    # ========================================================
+
     strategy = investment_strategy(
-    overall_score,
-    nifty50["close"],
-    nifty50["dma200"],
-    nifty50["rsi"]
-)
+        overall_score,
+        nifty50["close"],
+        nifty50["dma200"],
+        nifty50["monthly_rsi"]
+    )
 
 
     # ========================================================
@@ -1514,9 +1578,6 @@ Price:
 Daily Change:
 {nifty100['change']}%
 
-20 DMA:
-{nifty100['dma20']}
-
 50 DMA:
 {nifty100['dma50']}
 
@@ -1529,15 +1590,15 @@ Price vs 50 DMA:
 Price vs 200 DMA:
 {nifty100['vs200']}%
 
-RSI:
+RSI (Daily):
 {nifty100['rsi']}
 ({nifty100['rsi_status']})
 
+Monthly RSI:
+{nifty100['monthly_rsi']}
+
 Trend:
 {nifty100['trend']}
-
-Breadth >20 DMA:
-{large_breadth['pct20']}%
 
 Breadth >50 DMA:
 {large_breadth['pct50']}%
@@ -1567,9 +1628,6 @@ Price:
 Daily Change:
 {midcap150['change']}%
 
-20 DMA:
-{midcap150['dma20']}
-
 50 DMA:
 {midcap150['dma50']}
 
@@ -1582,15 +1640,15 @@ Price vs 50 DMA:
 Price vs 200 DMA:
 {midcap150['vs200']}%
 
-RSI:
+RSI (Daily):
 {midcap150['rsi']}
 ({midcap150['rsi_status']})
 
+Monthly RSI:
+{midcap150['monthly_rsi']}
+
 Trend:
 {midcap150['trend']}
-
-Breadth >20 DMA:
-{mid_breadth['pct20']}%
 
 Breadth >50 DMA:
 {mid_breadth['pct50']}%
@@ -1620,9 +1678,6 @@ Price:
 Daily Change:
 {smallcap250['change']}%
 
-20 DMA:
-{smallcap250['dma20']}
-
 50 DMA:
 {smallcap250['dma50']}
 
@@ -1635,15 +1690,15 @@ Price vs 50 DMA:
 Price vs 200 DMA:
 {smallcap250['vs200']}%
 
-RSI:
+RSI (Daily):
 {smallcap250['rsi']}
 ({smallcap250['rsi_status']})
 
+Monthly RSI:
+{smallcap250['monthly_rsi']}
+
 Trend:
 {smallcap250['trend']}
-
-Breadth >20 DMA:
-{small_breadth['pct20']}%
 
 Breadth >50 DMA:
 {small_breadth['pct50']}%
@@ -1672,8 +1727,11 @@ Price:
 Daily Change:
 {nifty50['change']}%
 
-RSI:
+RSI (Daily):
 {nifty50['rsi']}
+
+Monthly RSI:
+{nifty50['monthly_rsi']}
 
 Trend:
 {nifty50['trend']}
@@ -1688,18 +1746,20 @@ Price:
 Daily Change:
 {sensex['change']}%
 
-RSI:
+RSI (Daily):
 {sensex['rsi']}
+
+Monthly RSI:
+{sensex['monthly_rsi']}
 
 Trend:
 {sensex['trend']}
 
-
-━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━
 
 💰 INVESTMENT STRATEGY
 
-Market Stage:
+MARKET STAGE:
 {strategy['stage']}
 
 Equity SIP:
