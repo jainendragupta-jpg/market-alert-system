@@ -218,6 +218,7 @@ def get_index_data(symbol):
     if (
         current > dma50
         and dma50 > dma200
+        and monthly_rsi >= 60
     ):
         trend = "STRONG UPTREND"
 
@@ -1096,7 +1097,9 @@ def investment_strategy(
     dma200,
     monthly_rsi
 ):
+    """Approved Market Stage rules from the strategy table."""
 
+    # DARK GREEN: Score >= 65 OR (Price < DMA200 AND Monthly RSI < 45)
     if (
         score >= 65
         or (
@@ -1107,13 +1110,14 @@ def investment_strategy(
         return {
             "stage": "🟢 DARK GREEN",
             "sip": "100%",
-            "lumpsum": "100%",
+            "lumpsum": "100% Deploy",
             "action": (
                 "AGGRESSIVE BUY: SIP + ALL AVAILABLE SURPLUS CASH | "
                 "Loan Prepayment 0%"
             )
         }
 
+    # LIGHT GREEN: Score 51-64 OR Price < DMA200
     elif (
         51 <= score <= 64
         or price < dma200
@@ -1121,18 +1125,20 @@ def investment_strategy(
         return {
             "stage": "🟢 LIGHT GREEN",
             "sip": "100%",
-            "lumpsum": "50%",
+            "lumpsum": "50% Deploy",
             "action": "BUY | Loan Prepayment 0%"
         }
 
+    # YELLOW: Score 40-50
     elif 40 <= score <= 50:
         return {
             "stage": "🟡 YELLOW",
             "sip": "100%",
-            "lumpsum": "0%",
+            "lumpsum": "0% Deploy",
             "action": "Continue SIP | 50% Home Loan Prepayment"
         }
 
+    # ORANGE: Score 25-39 OR (Monthly RSI > 60 AND Monthly RSI < 70)
     elif (
         25 <= score <= 39
         or (
@@ -1143,17 +1149,22 @@ def investment_strategy(
         return {
             "stage": "🟠 ORANGE",
             "sip": "100%",
-            "lumpsum": "0%",
+            "lumpsum": "0% Deploy",
             "action": "70% Home Loan Prepayment / Gold ETF"
         }
 
+    # RED: Score < 25 OR Monthly RSI > 70
     else:
         return {
             "stage": "🔴 RED",
             "sip": "0%",
-            "lumpsum": "0%",
-            "action": "Rebalance | SELL 20% Small Cap → Loan Prepayment"
+            "lumpsum": "0% Deploy",
+            "action": (
+                "Rebalancing / SELL 20% Small Cap "
+                "→ Shift to Loan Prepayment"
+            )
         }
+
 
 
 # ============================================================
