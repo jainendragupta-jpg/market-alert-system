@@ -573,13 +573,6 @@ def calculate_breadth(symbols):
                     close.iloc[-1]
                 )
 
-                dma20 = (
-                    close
-                    .rolling(20)
-                    .mean()
-                    .iloc[-1]
-                )
-
                 dma50 = (
                     close
                     .rolling(50)
@@ -595,9 +588,6 @@ def calculate_breadth(symbols):
                 )
 
                 total += 1
-
-                if current > dma20:
-                    above20 += 1
 
                 if current > dma50:
                     above50 += 1
