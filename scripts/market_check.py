@@ -111,14 +111,8 @@ def get_index_data(symbol):
         / previous
     ) * 100
 
-    dma20 = close.rolling(20).mean().iloc[-1]
     dma50 = close.rolling(50).mean().iloc[-1]
     dma200 = close.rolling(200).mean().iloc[-1]
-
-    vs20 = (
-        (current - dma20)
-        / dma20
-    ) * 100
 
     vs50 = (
         (current - dma50)
@@ -184,8 +178,7 @@ def get_index_data(symbol):
     # --------------------------------------------------------
 
     if (
-        current > dma20
-        and dma20 > dma50
+        current > dma50
         and dma50 > dma200
     ):
         trend = "STRONG UPTREND"
@@ -208,10 +201,8 @@ def get_index_data(symbol):
     return {
         "close": round(current, 2),
         "change": round(change, 2),
-        "dma20": round(float(dma20), 2),
         "dma50": round(float(dma50), 2),
         "dma200": round(float(dma200), 2),
-        "vs20": round(float(vs20), 2),
         "vs50": round(float(vs50), 2),
         "vs200": round(float(vs200), 2),
         "rsi": round(rsi, 2),
@@ -664,20 +655,14 @@ def technical_score(data):
 
     score = 0
 
-    if data["close"] > data["dma20"]:
-        score += 15
-
     if data["close"] > data["dma50"]:
-        score += 20
+        score += 40
 
     if data["close"] > data["dma200"]:
-        score += 25
-
-    if data["dma20"] > data["dma50"]:
-        score += 15
+        score += 30
 
     if data["dma50"] > data["dma200"]:
-        score += 25
+        score += 30
 
     return score
 
@@ -692,13 +677,8 @@ def breadth_score(breadth):
         return 0
 
     return round(
-        (
-            breadth["pct20"] * 0.20
-            +
-            breadth["pct50"] * 0.30
-            +
-            breadth["pct200"] * 0.50
-        ),
+        breadth["pct50"] * 0.40 +
+        breadth["pct200"] * 0.60,
         1
     )
 
@@ -1084,6 +1064,49 @@ def get_allocation(
     return allocation
 
 
+def investment_strategy(score, price, dma200, rsi):
+
+    if score >= 65 or (price < dma200 and rsi < 45):
+        return {
+            "stage": "🟢 DARK GREEN",
+            "sip": "100%",
+            "lumpsum": "100%",
+            "action": "AGGRESSIVE BUY"
+        }
+
+    elif score >= 51:
+        return {
+            "stage": "🟢 LIGHT GREEN",
+            "sip": "100%",
+            "lumpsum": "50%",
+            "action": "BUY"
+        }
+
+    elif score >= 40:
+        return {
+            "stage": "🟡 YELLOW",
+            "sip": "100%",
+            "lumpsum": "0%",
+            "action": "50% HOME LOAN PREPAYMENT"
+        }
+
+    elif score >= 25 or (60 < rsi < 70):
+        return {
+            "stage": "🟠 ORANGE",
+            "sip": "100%",
+            "lumpsum": "0%",
+            "action": "70% LOAN PREPAYMENT / Buy GOLD ETF"
+        }
+
+    else:
+        return {
+            "stage": "🔴 RED",
+            "sip": "0%",
+            "lumpsum": "0%",
+            "action": "SELL 20% SMALLCAP"
+        }
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -1407,6 +1430,13 @@ try:
         small_score
     )
 
+    strategy = investment_strategy(
+    overall_score,
+    nifty50["close"],
+    nifty50["dma200"],
+    nifty50["rsi"]
+)
+
 
     # ========================================================
     # SAFE TEXT VALUES
@@ -1673,6 +1703,23 @@ RSI:
 
 Trend:
 {sensex['trend']}
+
+
+━━━━━━━━━━━━━━━━━━━━
+
+💰 INVESTMENT STRATEGY
+
+Market Stage:
+{strategy['stage']}
+
+Equity SIP:
+{strategy['sip']}
+
+Lump Sum:
+{strategy['lumpsum']}
+
+Recommendation:
+{strategy['action']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
