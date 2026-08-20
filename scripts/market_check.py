@@ -1546,254 +1546,171 @@ try:
 {overall_score}/100
 {overall_status}
 
-ACTION:
-{overall_action}
+ACTION: {overall_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🌐 MARKET VALUATION
 
-NIFTY 50 PE:
-{pe_text}
+NIFTY 50 PE: {pe_text}
 
-NIFTY 50 PB:
-{pb_text}
+NIFTY 50 PB: {pb_text}
 
-DIVIDEND YIELD:
-{dy_text}
+DIVIDEND YIELD: {dy_text}
 
-VALUATION SCORE:
-{valuation_score_value}/100
+VALUATION SCORE: {valuation_score_value}/100
 
-VALUATION DATA DATE:
-{valuation_data['date']}
+VALUATION DATA DATE: {valuation_data['date']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚡ INDIA VIX
 
-Current VIX:
-{vix_text}
+Current VIX: {vix_text}
 
-VIX SCORE:
-{vix_score_value}/100
+VIX SCORE: {vix_score_value}/100
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🟢 LARGE CAP
-NIFTY 100
+🟢 LARGE CAP : NIFTY 100
 
-Price:
-{nifty100['close']}
+Price: {nifty100['close']}
 
-Daily Change:
-{nifty100['change']}%
+Daily Change: {nifty100['change']}%
 
-50 DMA:
-{nifty100['dma50']}
+50 DMA: {nifty100['dma50']}
 
-200 DMA:
-{nifty100['dma200']}
+200 DMA: {nifty100['dma200']}
 
-Price vs 50 DMA:
-{nifty100['vs50']}%
+Price vs 50 DMA: {nifty100['vs50']}%
 
-Price vs 200 DMA:
-{nifty100['vs200']}%
+Price vs 200 DMA: {nifty100['vs200']}%
 
-RSI (Daily):
-{nifty100['rsi']}
-({nifty100['rsi_status']})
+Monthly RSI: {nifty100['monthly_rsi']}
 
-Monthly RSI:
-{nifty100['monthly_rsi']}
+Trend: {nifty100['trend']}
 
-Trend:
-{nifty100['trend']}
+Breadth >50 DMA: {large_breadth['pct50']}%
 
-Breadth >50 DMA:
-{large_breadth['pct50']}%
+Breadth >200 DMA: {large_breadth['pct200']}%
 
-Breadth >200 DMA:
-{large_breadth['pct200']}%
+Stocks Analyzed: {large_breadth['total']}
 
-Stocks Analyzed:
-{large_breadth['total']}
-
-🎯 LARGE CAP SCORE:
-{large_score}/100
+🎯 LARGE CAP SCORE: {large_score}/100
 
 {large_status}
 
-ACTION:
-{large_action}
+ACTION: {large_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🟡 MID CAP
-NIFTY MIDCAP 150
+🟡 MID CAP : NIFTY MIDCAP 150
 
-Price:
-{midcap150['close']}
+Price: {midcap150['close']}
 
-Daily Change:
-{midcap150['change']}%
+Daily Change: {midcap150['change']}%
 
-50 DMA:
-{midcap150['dma50']}
+50 DMA: {midcap150['dma50']}
 
-200 DMA:
-{midcap150['dma200']}
+200 DMA: {midcap150['dma200']}
 
-Price vs 50 DMA:
-{midcap150['vs50']}%
+Price vs 50 DMA: {midcap150['vs50']}%
 
-Price vs 200 DMA:
-{midcap150['vs200']}%
+Price vs 200 DMA: {midcap150['vs200']}%
 
-RSI (Daily):
-{midcap150['rsi']}
-({midcap150['rsi_status']})
+Monthly RSI: {midcap150['monthly_rsi']}
 
-Monthly RSI:
-{midcap150['monthly_rsi']}
+Trend: {midcap150['trend']}
 
-Trend:
-{midcap150['trend']}
+Breadth >50 DMA: {mid_breadth['pct50']}%
 
-Breadth >50 DMA:
-{mid_breadth['pct50']}%
+Breadth >200 DMA: {mid_breadth['pct200']}%
 
-Breadth >200 DMA:
-{mid_breadth['pct200']}%
+Stocks Analyzed: {mid_breadth['total']}
 
-Stocks Analyzed:
-{mid_breadth['total']}
-
-🎯 MID CAP SCORE:
-{mid_score}/100
+🎯 MID CAP SCORE: {mid_score}/100
 
 {mid_status}
 
-ACTION:
-{mid_action}
+ACTION: {mid_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔴 SMALL CAP
-NIFTY SMALLCAP 250
+🔴 SMALL CAP : NIFTY SMALLCAP 250
 
-Price:
-{smallcap250['close']}
+Price: {smallcap250['close']}
 
-Daily Change:
-{smallcap250['change']}%
+Daily Change: {smallcap250['change']}%
 
-50 DMA:
-{smallcap250['dma50']}
+50 DMA: {smallcap250['dma50']}
 
-200 DMA:
-{smallcap250['dma200']}
+200 DMA: {smallcap250['dma200']}
 
-Price vs 50 DMA:
-{smallcap250['vs50']}%
+Price vs 50 DMA: {smallcap250['vs50']}%
 
-Price vs 200 DMA:
-{smallcap250['vs200']}%
+Price vs 200 DMA: {smallcap250['vs200']}%
 
-RSI (Daily):
-{smallcap250['rsi']}
-({smallcap250['rsi_status']})
+Monthly RSI: {smallcap250['monthly_rsi']}
 
-Monthly RSI:
-{smallcap250['monthly_rsi']}
+Trend: {smallcap250['trend']}
 
-Trend:
-{smallcap250['trend']}
+Breadth >50 DMA: {small_breadth['pct50']}%
 
-Breadth >50 DMA:
-{small_breadth['pct50']}%
+Breadth >200 DMA: {small_breadth['pct200']}%
 
-Breadth >200 DMA:
-{small_breadth['pct200']}%
+Stocks Analyzed: {small_breadth['total']}
 
-Stocks Analyzed:
-{small_breadth['total']}
-
-🎯 SMALL CAP SCORE:
-{small_score}/100
+🎯 SMALL CAP SCORE: {small_score}/100
 
 {small_status}
 
-ACTION:
-{small_action}
+ACTION: {small_action}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🇮🇳 NIFTY 50
 
-Price:
-{nifty50['close']}
+Price: {nifty50['close']}
 
-Daily Change:
-{nifty50['change']}%
+Daily Change: {nifty50['change']}%
 
-RSI (Daily):
-{nifty50['rsi']}
+Monthly RSI: {nifty50['monthly_rsi']}
 
-Monthly RSI:
-{nifty50['monthly_rsi']}
-
-Trend:
-{nifty50['trend']}
+Trend: {nifty50['trend']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🇮🇳 SENSEX
 
-Price:
-{sensex['close']}
+Price: {sensex['close']}
 
-Daily Change:
-{sensex['change']}%
+Daily Change: {sensex['change']}%
 
-RSI (Daily):
-{sensex['rsi']}
+Monthly RSI: {sensex['monthly_rsi']}
 
-Monthly RSI:
-{sensex['monthly_rsi']}
-
-Trend:
-{sensex['trend']}
+Trend: {sensex['trend']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 💰 INVESTMENT STRATEGY
 
-MARKET STAGE:
-{strategy['stage']}
+MARKET STAGE: {strategy['stage']}
 
-Equity SIP:
-{strategy['sip']}
+Equity SIP: {strategy['sip']}
 
-Lump Sum:
-{strategy['lumpsum']}
+Lump Sum: {strategy['lumpsum']}
 
-Recommendation:
-{strategy['action']}
+Recommendation: {strategy['action']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 💰 SUGGESTED ALLOCATION
 
-🟢 LARGE CAP:
-{allocation['large']}%
+🟢 LARGE CAP: {allocation['large']}%
 
-🟡 MID CAP:
-{allocation['mid']}%
+🟡 MID CAP: {allocation['mid']}%
 
-🔴 SMALL CAP:
-{allocation['small']}%
+🔴 SMALL CAP: {allocation['small']}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1806,22 +1723,7 @@ Recommendation:
 40–49 → Reduce New Investment
 <40 → Wait / Defensive
 
-━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️ IMPORTANT
-
-Quantitative decision-support only.
-Not a guaranteed-profit system.
-
-Valuation thresholds are initial
-rules and will be validated through
-historical backtesting.
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🤖 GitHub Actions Active
-📱 Telegram Active
-📊 AI Wealth Manager
 ━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
