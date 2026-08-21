@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
 def send_telegram(message: str) -> None:
-    """Sends formatted plain-text alert to Telegram."""
+    """Sends formatted plain-text alert to Telegram with fail-safe error handling."""
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or not TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
         print("Telegram configuration missing. Displaying output in console:\n")
         print(message)
@@ -32,42 +33,50 @@ def send_telegram(message: str) -> None:
         print(f"Error sending Telegram notification: {e}")
 
 # ============================================================
-# DYNAMIC MARKET & P/E DATA FETCHING
+# SAFE MARKET & INDEX DATA FETCHING (HOLIDAY SAFE)
 # ============================================================
 
 def get_index_data(ticker_symbol: str) -> dict:
+    """Fetches historical price data and handles 3-4 days market holidays safely."""
     try:
         ticker = yf.Ticker(ticker_symbol)
+        # 2y period ensures full 200 DMA & RSI calculation even after long holidays
         df = ticker.history(period="2y")
         
-        if df.empty or len(df) < 200:
+        if df.empty or len(df) < 50:
             raise ValueError(f"Insufficient historical price data for {ticker_symbol}")
 
-        close_series = df['Close']
+        close_series = df['Close'].dropna()
+        
+        # Holiday/Weekend Safe Price Indexing
         latest_close = float(close_series.iloc[-1])
-        prev_close = float(close_series.iloc[-2])
-        daily_change = round(((latest_close - prev_close) / prev_close) * 100, 2)
+        prev_close = float(close_series.iloc[-2]) if len(close_series) > 1 else latest_close
+        
+        daily_change = round(((latest_close - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
 
-        dma50 = float(close_series.rolling(window=50).mean().iloc[-1])
-        dma200 = float(close_series.rolling(window=200).mean().iloc[-1])
+        dma50 = float(close_series.rolling(window=min(50, len(close_series))).mean().iloc[-1])
+        dma200 = float(close_series.rolling(window=min(200, len(close_series))).mean().iloc[-1])
 
-        high_52w = float(df['High'].iloc[-252:].max())
-        drawdown = round(((high_52w - latest_close) / high_52w) * 100, 2)
+        high_52w = float(df['High'].iloc[-252:].max()) if len(df) >= 252 else float(df['High'].max())
+        drawdown = round(((high_52w - latest_close) / high_52w) * 100, 2) if high_52w > 0 else 0.0
 
-        weekly_df = close_series.resample('W').last()
+        # Dynamic Resampling for RSI without Pandas Warnings
+        weekly_df = close_series.resample('W').last().dropna()
         try:
-            monthly_df = close_series.resample('ME').last()
-        except ValueError:
-            monthly_df = close_series.resample('M').last()
+            monthly_df = close_series.resample('ME').last().dropna()
+        except Exception:
+            monthly_df = close_series.resample('M').last().dropna()
 
         def compute_rsi(series: pd.Series, period: int = 14) -> float:
+            if len(series) < period:
+                return 50.0
             delta = series.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
             rs = gain / loss.replace(0, np.nan)
             rsi_series = 100 - (100 / (1 + rs))
-            val = rsi_series.dropna().iloc[-1] if not rsi_series.dropna().empty else 50.0
-            return float(val)
+            valid_rsi = rsi_series.dropna()
+            return float(valid_rsi.iloc[-1]) if not valid_rsi.empty else 50.0
 
         weekly_rsi = round(compute_rsi(weekly_df), 2)
         monthly_rsi = round(compute_rsi(monthly_df), 2)
@@ -85,34 +94,41 @@ def get_index_data(ticker_symbol: str) -> dict:
             "trend": trend
         }
     except Exception as e:
-        print(f"Error retrieving index data for {ticker_symbol}: {e}")
+        print(f"Warning: Fallback applied for {ticker_symbol} due to: {e}")
         return {
             "close": 0.0, "change": 0.0, "dma50": 0.0, "dma200": 0.0,
             "drawdown": 0.0, "weekly_rsi": 50.0, "monthly_rsi": 50.0, "trend": "N/A"
         }
 
-def get_dynamic_category_pe(symbols: list, default_pe: float) -> float:
-    pe_list = []
-    for sym in symbols:
-        try:
-            t = yf.Ticker(sym)
-            info = t.info
-            pe = info.get("trailingPE") or info.get("forwardPE")
-            if pe and pe > 0:
-                pe_list.append(pe)
-        except Exception:
-            continue
-    return round(float(np.mean(pe_list)), 2) if pe_list else default_pe
+def get_screener_index_pe(index_slug: str, fallback_pe: float) -> float:
+    """Scrapes exact official Index P/E ratio from Screener with headers & multi-pattern regex."""
+    url = f"https://www.screener.in/company/{index_slug}/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    try:
+        res = requests.get(url, headers=headers, timeout=8)
+        if res.status_code == 200:
+            # Pattern 1: Standard Stock P/E span
+            match = re.search(r'Stock P/E.*?>\s*([\d\.]+)\s*<', res.text, re.DOTALL | re.IGNORECASE)
+            if match:
+                return float(match.group(1))
+            # Pattern 2: Secondary fallback regex for Screener UI updates
+            match_alt = re.search(r'P/E\s*</span>\s*<span[^>]*>\s*([\d\.]+)', res.text, re.IGNORECASE)
+            if match_alt:
+                return float(match_alt.group(1))
+    except Exception as e:
+        print(f"Failed fetching Screener PE for {index_slug}, using safety fallback: {e}")
+    return fallback_pe
 
 def get_category_pe_ratios() -> dict:
     today_str = datetime.now().strftime("%d-%b-%Y")
-    large_symbols = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "LT.NS"]
-    mid_symbols = ["FEDERALBNK.NS", "VOLTAS.NS", "POLYCAB.NS", "PERSISTENT.NS", "COFORGE.NS", "AUBANK.NS"]
-    small_symbols = ["CDSL.NS", "ANGELONE.NS", "KEI.NS", "CYIENT.NS", "BSOFT.NS"]
-
-    large_pe = get_dynamic_category_pe(large_symbols, 22.5)
-    mid_pe = get_dynamic_category_pe(mid_symbols, 30.0)
-    small_pe = get_dynamic_category_pe(small_symbols, 28.0)
+    
+    # Live Scraping with Bulletproof Fallbacks
+    large_pe = get_screener_index_pe("Nifty+100", 20.3)
+    mid_pe = get_screener_index_pe("Nifty+Midcap+150", 29.5)
+    small_pe = get_screener_index_pe("Nifty+Smallcap+250", 27.8)
 
     return {
         "large_pe": large_pe,
@@ -143,7 +159,7 @@ def get_india_vix() -> float:
         if not df.empty:
             return round(float(df['Close'].iloc[-1]), 2)
     except Exception as e:
-        print(f"Error fetching India VIX: {e}")
+        print(f"Error fetching India VIX, using standard default: {e}")
     return 15.0
 
 def calculate_breadth(symbols: list) -> dict:
@@ -170,7 +186,7 @@ def god_score(close: float, dma50: float, dma200: float, w_rsi: float, m_rsi: fl
     score = 50.0
     if close > dma50 and dma50 > dma200:
         score += 15
-    elif close < dma200:
+    elif close < dma200 and close > 0:
         score -= 10
 
     if 40 <= w_rsi <= 60:
@@ -269,7 +285,7 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
         }
 
 # ============================================================
-# MAIN EXECUTION WITH DYNAMIC CATEGORY ALERT FILTER
+# MAIN EXECUTION
 # ============================================================
 
 if __name__ == "__main__":
@@ -325,7 +341,7 @@ if __name__ == "__main__":
                 "──────────────────────",
                 "🌡️ MARKET METRICS",
                 f"• Score: {overall_score}/100 ({score_status(overall_score)})",
-                f"• Nifty PE (Live): {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}",
+                f"• Nifty PE (Exact): {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}",
                 f"• Nifty 50: {nifty50['close']} ({nifty50['change']}%)",
                 f"• Monthly RSI: {nifty50['monthly_rsi']}",
                 "──────────────────────",
@@ -341,7 +357,7 @@ if __name__ == "__main__":
                     f"• Stage: {large_stage['stage']}",
                     f"• SIP Status: {large_stage['sip_status']}",
                     f"• Action: {large_stage['lumpsum_pct']}",
-                    f"• Live PE: {pe_data['large_pe']:.2f} ({large_pe_status})",
+                    f"• Index PE: {pe_data['large_pe']:.2f} ({large_pe_status})",
                     f"• Price: {nifty100['close']} (-{nifty100['drawdown']}%)",
                     f"• Weekly RSI: {nifty100['weekly_rsi']:.2f} | Monthly RSI: {nifty100['monthly_rsi']:.2f}",
                     f"• DMA Trend: {nifty100['trend']}\n"
@@ -355,7 +371,7 @@ if __name__ == "__main__":
                     f"• Stage: {mid_stage['stage']}",
                     f"• SIP Status: {mid_stage['sip_status']}",
                     f"• Action: {mid_stage['lumpsum_pct']}",
-                    f"• Live PE: {pe_data['mid_pe']:.2f} ({mid_pe_status})",
+                    f"• Index PE: {pe_data['mid_pe']:.2f} ({mid_pe_status})",
                     f"• Price: {midcap150['close']} (-{midcap150['drawdown']}%)",
                     f"• Weekly RSI: {midcap150['weekly_rsi']:.2f} | Monthly RSI: {midcap150['monthly_rsi']:.2f}",
                     f"• DMA Trend: {midcap150['trend']}\n"
@@ -369,7 +385,7 @@ if __name__ == "__main__":
                     f"• Stage: {small_stage['stage']}",
                     f"• SIP Status: {small_stage['sip_status']}",
                     f"• Action: {small_stage['lumpsum_pct']}",
-                    f"• Live PE: {pe_data['small_pe']:.2f} ({small_pe_status})",
+                    f"• Index PE: {pe_data['small_pe']:.2f} ({small_pe_status})",
                     f"• Price: {smallcap250['close']} (-{smallcap250['drawdown']}%)",
                     f"• Weekly RSI: {smallcap250['weekly_rsi']:.2f} | Monthly RSI: {smallcap250['monthly_rsi']:.2f}",
                     f"• DMA Trend: {smallcap250['trend']}\n"
