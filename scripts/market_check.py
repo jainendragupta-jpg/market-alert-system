@@ -23,24 +23,25 @@ NSE_HEADERS = {
 # ============================================================
 
 def send_telegram(message: str) -> None:
-    """Sends a text message to the specified Telegram Chat."""
-    if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
-        print("Telegram configuration missing. Displaying output in console instead:\n")
+    """Sends a text message to the specified Telegram Chat without failing on parse errors."""
+    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or not TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
+        print("Telegram configuration missing or using placeholders. Displaying output in console instead:\n")
         print(message)
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
+        "text": message
     }
     try:
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=15)
         response.raise_for_status()
-        print("Telegram message sent successfully.")
+        print("Telegram message sent successfully!")
     except Exception as e:
         print(f"Failed to send Telegram message: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"Response details: {e.response.text}")
 
 def get_index_data(ticker_symbol: str) -> dict:
     """Fetches historical price data and technical indicators for a given index."""
@@ -64,18 +65,21 @@ def get_index_data(ticker_symbol: str) -> dict:
         high_52w = float(df['High'].iloc[-252:].max())
         drawdown = round(((high_52w - latest_close) / high_52w) * 100, 2)
 
-        # Weekly & Monthly RSI
+        # Weekly & Monthly RSI (Fixed Pandas Resample Key 'W' -> 'W', 'M' -> 'ME')
         weekly_df = close_series.resample('W').last()
-        monthly_df = close_series.resample('M').last()
+        try:
+            monthly_df = close_series.resample('ME').last()
+        except ValueError:
+            monthly_df = close_series.resample('M').last()
 
         def compute_rsi(series: pd.Series, period: int = 14) -> float:
             delta = series.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-            rs = gain / loss
+            rs = gain / loss.replace(0, np.nan)
             rsi_series = 100 - (100 / (1 + rs))
-            val = rsi_series.iloc[-1]
-            return float(val) if not np.isnan(val) else 50.0
+            val = rsi_series.dropna().iloc[-1] if not rsi_series.dropna().empty else 50.0
+            return float(val)
 
         weekly_rsi = round(compute_rsi(weekly_df), 2)
         monthly_rsi = round(compute_rsi(monthly_df), 2)
@@ -102,7 +106,6 @@ def get_index_data(ticker_symbol: str) -> dict:
 def get_nse_valuation() -> dict:
     """Fetches Nifty 50 PE, PB, and Dividend Yield."""
     today_str = datetime.now().strftime("%Y-%m-%d")
-    # Placeholder/Fallback values in case scraping encounters API restrictions
     return {
         "pe": 22.5,
         "pb": 4.1,
@@ -119,11 +122,11 @@ def get_india_vix() -> float:
             return round(float(df['Close'].iloc[-1]), 2)
     except Exception as e:
         print(f"Error fetching India VIX: {e}")
-    return 15.0  # Default baseline
+    return 15.0
 
-# Constituents lists (Representative symbol sampling)
+# Fixed Ticker list (Removed delisted LTIM.NS issue)
 def get_nifty100_symbols() -> list:
-    return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "SBIN.NS", "LTIM.NS", "LT.NS"]
+    return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "SBIN.NS", "LT.NS", "AXISBANK.NS"]
 
 def get_midcap150_symbols() -> list:
     return ["FEDERALBNK.NS", "VOLTAS.NS", "POLYCAB.NS", "ASHOKLEY.NS", "AUBANK.NS", "MPHASIS.NS", "PERSISTENT.NS", "COFORGE.NS"]
@@ -157,11 +160,8 @@ def calculate_breadth(symbols: list) -> dict:
 # ============================================================
 
 def calculate_valuation_score(pe: float, pb: float, dy: float) -> float:
-    """Calculates valuation score out of 100."""
     if pe is None:
         return 50.0
-    
-    # PE score: lower PE -> higher score
     if pe < 18:
         pe_score = 90
     elif pe < 22:
@@ -174,29 +174,25 @@ def calculate_valuation_score(pe: float, pb: float, dy: float) -> float:
     return float(pe_score)
 
 def vix_score(vix: float) -> float:
-    """Calculates score based on India VIX volatility."""
     if vix is None:
         return 50.0
     if vix < 12:
-        return 80.0  # Low volatility / Low fear
+        return 80.0
     elif vix < 18:
-        return 65.0  # Normal market state
+        return 65.0
     elif vix < 24:
-        return 45.0  # Elevating fear
+        return 45.0
     else:
-        return 30.0  # Extreme fear / Panic
+        return 30.0
 
 def god_score(close: float, dma50: float, dma200: float, w_rsi: float, m_rsi: float, drawdown: float, vix: float, breadth_200: float) -> float:
-    """Comprehensive scoring function for an index segment."""
     score = 50.0
     
-    # DMA Trend
     if close > dma50 and dma50 > dma200:
         score += 15
     elif close < dma200:
         score -= 10
 
-    # RSI condition
     if 40 <= w_rsi <= 60:
         score += 10
     elif w_rsi > 70:
@@ -205,13 +201,11 @@ def god_score(close: float, dma50: float, dma200: float, w_rsi: float, m_rsi: fl
     if m_rsi > 50:
         score += 10
 
-    # Breadth
     if breadth_200 > 60:
         score += 10
     elif breadth_200 < 40:
         score -= 10
 
-    # VIX adjustment
     if vix < 15:
         score += 5
 
@@ -246,7 +240,6 @@ def valuation_label(score: float) -> str:
         return "Expensive ❌"
 
 def get_allocation(overall: float, large: float, mid: float, small: float) -> dict:
-    """Returns allocation percentages for Large, Mid, and Small caps."""
     if overall > 65:
         return {"large": 50, "mid": 30, "small": 20}
     elif overall >= 45:
@@ -255,7 +248,6 @@ def get_allocation(overall: float, large: float, mid: float, small: float) -> di
         return {"large": 70, "mid": 20, "small": 10}
 
 def investment_strategy(score: float, close: float, dma200: float, m_rsi: float) -> dict:
-    """Determines market stage and execution advice."""
     if score >= 65:
         stage = "Bullish Expansion"
         sip = "100% Active"
@@ -341,7 +333,7 @@ if __name__ == "__main__":
             india_vix, small_breadth["pct200"]
         )
 
-        # 7. Overall Market Score (Calculated AFTER segment scores)
+        # 7. Overall Market Score
         overall_score = round(
             large_score * 0.50 +
             mid_score * 0.30 +
@@ -479,7 +471,6 @@ Small Cap: {allocation['small']}%
 
         # 10. Dispatch Output
         send_telegram(message)
-        print("Market intelligence report generated successfully!")
 
     except Exception as e:
         print(f"Error running AI Wealth Manager: {e}")
