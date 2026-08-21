@@ -78,7 +78,7 @@ def get_index_data(ticker_symbol: str) -> dict:
         weekly_rsi = round(compute_rsi(weekly_df), 2)
         monthly_rsi = round(compute_rsi(monthly_df), 2)
 
-        trend = "Bullish 🟢" if dma50 > dma200 else "Bearish 🔴"
+        trend = "🟢 50>200 DMA" if dma50 > dma200 else "🔴 50<200 DMA"
 
         return {
             "close": round(latest_close, 2),
@@ -99,7 +99,7 @@ def get_index_data(ticker_symbol: str) -> dict:
 
 def get_nse_valuation() -> dict:
     """Returns current Nifty PE valuation metrics."""
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.now().strftime("%d-%b-%Y")
     return {
         "pe": 22.5,  # Base benchmark anchor
         "pb": 4.1,
@@ -162,7 +162,7 @@ def god_score(close: float, dma50: float, dma200: float, w_rsi: float, m_rsi: fl
     if 40 <= w_rsi <= 60:
         score += 10
     elif w_rsi > 70:
-        score -= 15  # Penalize overbought zones
+        score -= 15
 
     if m_rsi > 50:
         score += 10
@@ -179,7 +179,7 @@ def god_score(close: float, dma50: float, dma200: float, w_rsi: float, m_rsi: fl
 
 def score_status(score: float) -> str:
     if score >= 75:
-        return "EXTREMELY BULLISH 🚀"
+        return "BULLISH 🚀"
     elif score >= 60:
         return "BULLISH 🟢"
     elif score >= 45:
@@ -189,16 +189,6 @@ def score_status(score: float) -> str:
     else:
         return "EXTREMELY BEARISH ⚠️"
 
-def valuation_label(pe: float) -> str:
-    if pe is None:
-        return "N/A"
-    if pe < 19:
-        return "Attractive (Undervalued) ✅"
-    elif pe <= 23.5:
-        return "Fairly Valued 🟡"
-    else:
-        return "Expensive (Overvalued) ❌"
-
 # ============================================================
 # CATEGORY-SPECIFIC 8-STAGE EVALUATION ENGINE
 # ============================================================
@@ -207,70 +197,77 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
     """
     Evaluates individual index drawdown & RSI to assign a Dedicated 8-Stage Strategy.
     """
-    # Safety Check: If near All Time High or Overbought, Force 0% Lumpsum
     if drawdown_52w < 1.5 or weekly_rsi >= 72.0:
         return {
-            "stage": "Stage 1: Overheated / Peak Euphoria 🔥",
-            "action": "Regular SIP Only 🟢",
-            "lumpsum_pct": "0% (STRICT NO LUMPSUM)",
-            "home_loan_prepay": "100% Extra Cash -> Prepay Home Loan",
-            "guidance": "Category is near peak/overbought. Zero lumpsum. Redirect all extra cash to Home Loan Pre-payment."
+            "stage": "🔥 STAGE 1 (EUPHORIA)",
+            "action": "100% Active",
+            "lumpsum_pct": "0% (STRICT NO) 🔴",
+            "home_loan_prepay": "100% Extra Cash ➔ Prepay Home Loan 🏦",
+            "cash_split": "0% Equity | 100% Home Loan Prepay 🏦",
+            "guidance": "Category near peak/overbought. Redirect extra cash to Loan."
         }
     elif drawdown_52w >= 25.0 or weekly_rsi < 30:
         return {
-            "stage": "Stage 8: Generational Bottom / Crisis 🛑",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "+100% Maximum Emergency Cash",
-            "home_loan_prepay": "0% (Deploy All in Category)",
-            "guidance": "Generational opportunity! Deploy maximum available cash in this category."
+            "stage": "🛑 STAGE 8 (CRISIS BOTTOM)",
+            "action": "100% Active",
+            "lumpsum_pct": "+100% Max Cash 🟢",
+            "home_loan_prepay": "0% (Deploy All in Equity)",
+            "cash_split": "100% Equity | 0% Home Loan",
+            "guidance": "Generational dip! Deploy maximum available cash."
         }
     elif drawdown_52w >= 15.0 or weekly_rsi < 35 or pe_ratio < 19:
         return {
-            "stage": "Stage 7: Bear Market / Heavy Panic 📉",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "+75% Heavy Extra Capital",
-            "home_loan_prepay": "0% (Focus Equity Dip)",
-            "guidance": "Heavy discount zone. Aggressive allocation recommended."
+            "stage": "📉 STAGE 7 (BEAR MARKET)",
+            "action": "100% Active",
+            "lumpsum_pct": "+75% Extra Capital 🟢",
+            "home_loan_prepay": "0% (Focus Equity)",
+            "cash_split": "100% Equity | 0% Home Loan",
+            "guidance": "Heavy discount zone. Aggressive equity accumulation."
         }
     elif drawdown_52w >= 10.0 or weekly_rsi < 40 or vix > 20:
         return {
-            "stage": "Stage 6: Severe Category Correction ⚠️",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "+50% Extra Capital",
+            "stage": "⚠️ STAGE 6 (CORRECTION)",
+            "action": "100% Active",
+            "lumpsum_pct": "+50% Extra Capital 🟢",
             "home_loan_prepay": "0% Pre-payment",
-            "guidance": "Significant dip. Deploy staggered tranches in this category."
+            "cash_split": "100% Equity | 0% Home Loan",
+            "guidance": "Significant dip. Deploy staggered tranches."
         }
     elif drawdown_52w >= 4.5 or (40 <= weekly_rsi < 48):
         return {
-            "stage": "Stage 5: Healthy Dip / Buy Zone 🟡",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "+30% Extra Capital",
-            "home_loan_prepay": "20% Extra Cash to Home Loan",
-            "guidance": "Category is at a healthy discount. Deploy first major equity tranche."
+            "stage": "🟡 STAGE 5 (HEALTHY DIP)",
+            "action": "100% Active",
+            "lumpsum_pct": "+30% Extra Capital 🟢",
+            "home_loan_prepay": "20% Extra Cash to Loan",
+            "cash_split": "80% Equity | 20% Home Loan Prepay 🏦",
+            "guidance": "Healthy discount. Deploy first major equity tranche."
         }
     elif drawdown_52w >= 2.5 or (48 <= weekly_rsi < 58):
         return {
-            "stage": "Stage 4: Minor Pullback 📊",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "+15% Extra Capital",
-            "home_loan_prepay": "50% Extra Cash to Home Loan",
-            "guidance": "Minor dip. Split extra cash 50-50 between Equity & Home Loan."
+            "stage": "📊 STAGE 4 (MINOR PULLBACK)",
+            "action": "100% Active",
+            "lumpsum_pct": "+15% Extra Capital 🟢",
+            "home_loan_prepay": "50% Extra Cash to Loan",
+            "cash_split": "50% Equity | 50% Home Loan Prepay 🏦",
+            "guidance": "Minor dip. Split extra cash 50-50 between Equity & Loan."
         }
     elif 58 <= weekly_rsi < 68:
         return {
-            "stage": "Stage 3: Steady Bullish 🟢",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "+10% Small Top-Up",
-            "home_loan_prepay": "70% Extra Cash to Home Loan",
+            "stage": "🟢 STAGE 3 (STEADY BULL)",
+            "action": "100% Active",
+            "lumpsum_pct": "+10% Small Top-Up 🟢",
+            "home_loan_prepay": "70% Extra Cash to Loan",
+            "cash_split": "30% Equity | 70% Home Loan Prepay 🏦",
             "guidance": "Steady trend. Focus mostly on Home Loan Pre-payment."
         }
-    else: # Stage 2: Strong Momentum Rally
+    else:
         return {
-            "stage": "Stage 2: Strong Rally / High Momentum 🚀",
-            "action": "Regular SIP 100% Active",
-            "lumpsum_pct": "0% Extra Lumpsum",
-            "home_loan_prepay": "100% Extra Cash to Home Loan",
-            "guidance": "Market is running high. Zero extra lumpsum here. Prepay Home Loan instead."
+            "stage": "🚀 STAGE 2 (STRONG RALLY)",
+            "action": "100% Active",
+            "lumpsum_pct": "0% Extra Lumpsum 🔴",
+            "home_loan_prepay": "100% Extra Cash to Loan",
+            "cash_split": "0% Equity | 100% Home Loan Prepay 🏦",
+            "guidance": "Strong momentum. Prepay Home Loan instead."
         }
 
 # ============================================================
@@ -280,7 +277,7 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
 if __name__ == "__main__":
     try:
         print("======================================")
-        print("AI WEALTH MANAGER STARTED (CATEGORY-WISE STAGE ENGINE)")
+        print("AI WEALTH MANAGER STARTED (OPTION 1 DASHBOARD CARD)")
         print("======================================")
 
         # 1. Fetch Index Data
@@ -303,72 +300,55 @@ if __name__ == "__main__":
         mid_breadth = calculate_breadth(get_midcap150_symbols())
         small_breadth = calculate_breadth(get_smallcap250_symbols())
 
-        # 4. Individual Category God Scores
+        # 4. Individual Category God Scores & Overall Balance
         large_score = god_score(nifty100["close"], nifty100["dma50"], nifty100["dma200"], nifty100["weekly_rsi"], nifty100["monthly_rsi"], nifty100["drawdown"], india_vix, large_breadth["pct200"])
         mid_score = god_score(midcap150["close"], midcap150["dma50"], midcap150["dma200"], midcap150["weekly_rsi"], midcap150["monthly_rsi"], midcap150["drawdown"], india_vix, mid_breadth["pct200"])
         small_score = god_score(smallcap250["close"], smallcap250["dma50"], smallcap250["dma200"], smallcap250["weekly_rsi"], smallcap250["monthly_rsi"], smallcap250["drawdown"], india_vix, small_breadth["pct200"])
 
-        # 5. INDEPENDENT CATEGORY-WISE 8-STAGE EVALUATION
+        overall_score = round(large_score * 0.55 + mid_score * 0.28 + small_score * 0.17, 1)
+
+        # 5. Category-Wise Stage Evaluation
         large_stage = get_category_stage(nifty100["drawdown"], nifty100["weekly_rsi"], pe, india_vix)
         mid_stage = get_category_stage(midcap150["drawdown"], midcap150["weekly_rsi"], pe, india_vix)
         small_stage = get_category_stage(smallcap250["drawdown"], smallcap250["weekly_rsi"], pe, india_vix)
 
-        # 6. Format Final Output
-        message = f"""🤖 AI WEALTH MANAGER
-📊 CATEGORY-SPECIFIC MARKET INTELLIGENCE REPORT
-━━━━━━━━━━━━━━━━━━━━━━━━
+        # 6. Build Option 1 Modern Dashboard Card Message
+        message = f"""📊 AI WEALTH MANAGER | {val_data['date']}
+──────────────────────────────
+🌡️ MARKET METRICS
+• Score: {overall_score}/100 ({score_status(overall_score)})
+• Nifty PE: {pe:.2f} | VIX: {india_vix:.2f}
+• Nifty 50: {nifty50['close']} ({nifty50['change']}%) [mRSI: {nifty50['monthly_rsi']}]
 
-🌐 MARKET VALUATION & VOLATILITY
-• Nifty 50 PE: {pe:.2f} ({valuation_label(pe)})
-• India VIX: {india_vix:.2f}
-• Data Date: {val_data['date']}
+──────────────────────────────
+🏛️ CATEGORY ACTION MATRIX
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+🔵 LARGE CAP ➔ {large_stage['stage']}
+• SIP: {large_stage['action']} | Lumpsum: {large_stage['lumpsum_pct']}
+• Action: {large_stage['cash_split']}
+• Tech: P: {nifty100['close']} | DD: -{nifty100['drawdown']}% | wRSI: {nifty100['weekly_rsi']} | {nifty100['trend']}
+💡 Note: {large_stage['guidance']}
 
-🏛️ CATEGORY-WISE ALLOCATION MATRIX
+🟡 MID CAP ➔ {mid_stage['stage']}
+• SIP: {mid_stage['action']} | Lumpsum: {mid_stage['lumpsum_pct']}
+• Action: {mid_stage['cash_split']}
+• Tech: P: {midcap150['close']} | DD: -{midcap150['drawdown']}% | wRSI: {midcap150['weekly_rsi']} | {midcap150['trend']}
+💡 Note: {mid_stage['guidance']}
 
-🔵 LARGE CAP (NIFTY 100)
-• Stage: {large_stage['stage']}
-• SIP Status: {large_stage['action']}
-• Lumpsum Decision: {large_stage['lumpsum_pct']}
-• Home Loan Action: {large_stage['home_loan_prepay']}
-• Technical Details: Price {nifty100['close']} | Drawdown: -{nifty100['drawdown']}%
-• RSI (Weekly/Monthly): {nifty100['weekly_rsi']} / {nifty100['monthly_rsi']}
-• DMA Trend: {'🟢 50DMA > 200DMA' if nifty100['dma50'] > nifty100['dma200'] else '🔴 50DMA < 200DMA'}
-💡 Guidance: {large_stage['guidance']}
+🟠 SMALL CAP ➔ {small_stage['stage']}
+• SIP: {small_stage['action']} | Lumpsum: {small_stage['lumpsum_pct']}
+• Action: {small_stage['cash_split']}
+• Tech: P: {smallcap250['close']} | DD: -{smallcap250['drawdown']}% | wRSI: {smallcap250['weekly_rsi']} | {smallcap250['trend']}
+💡 Note: {small_stage['guidance']}
 
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🟡 MID CAP (NIFTY MIDCAP 150)
-• Stage: {mid_stage['stage']}
-• SIP Status: {mid_stage['action']}
-• Lumpsum Decision: {mid_stage['lumpsum_pct']}
-• Home Loan Action: {mid_stage['home_loan_prepay']}
-• Technical Details: Price {midcap150['close']} | Drawdown: -{midcap150['drawdown']}%
-• RSI (Weekly/Monthly): {midcap150['weekly_rsi']} / {midcap150['monthly_rsi']}
-• DMA Trend: {'🟢 50DMA > 200DMA' if midcap150['dma50'] > midcap150['dma200'] else '🔴 50DMA < 200DMA'}
-💡 Guidance: {mid_stage['guidance']}
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🟠 SMALL CAP (NIFTY SMALLCAP 250)
-• Stage: {small_stage['stage']}
-• SIP Status: {small_stage['action']}
-• Lumpsum Decision: {small_stage['lumpsum_pct']}
-• Home Loan Action: {small_stage['home_loan_prepay']}
-• Technical Details: Price {smallcap250['close']} | Drawdown: -{smallcap250['drawdown']}%
-• RSI (Weekly/Monthly): {smallcap250['weekly_rsi']} / {smallcap250['monthly_rsi']}
-• DMA Trend: {'🟢 50DMA > 200DMA' if smallcap250['dma50'] > smallcap250['dma200'] else '🔴 50DMA < 200DMA'}
-💡 Guidance: {small_stage['guidance']}
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🇮🇳 BENCHMARK INDICES SUMMARY
-• Nifty 50: {nifty50['close']} ({nifty50['change']}%) | Monthly RSI: {nifty50['monthly_rsi']}
-• Sensex: {sensex['close']} ({sensex['change']}%) | Monthly RSI: {sensex['monthly_rsi']}
+──────────────────────────────
+💡 SUMMARY ACTION PLAN
+Large Cap Lumpsum: {large_stage['lumpsum_pct']}
+Mid Cap Lumpsum: {mid_stage['lumpsum_pct']}
+Small Cap Lumpsum: {small_stage['lumpsum_pct']}
 """
 
-        # 7. Send Output
+        # 7. Send Message
         send_telegram(message)
 
     except Exception as e:
