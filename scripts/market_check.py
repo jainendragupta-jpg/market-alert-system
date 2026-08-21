@@ -354,13 +354,13 @@ if __name__ == "__main__":
             msg_lines = [
                 "🚨 ACTION ALERT: AI WEALTH MANAGER" + (" [TEST RUN]" if is_test_mode else ""),
                 f"{pe_data['date']}",
-                "──────────────────────",
+                "──────────────────────────",
                 "🌡️ MARKET METRICS",
                 f"• Score: {overall_score}/100 ({score_status(overall_score)})",
                 f"• Nifty PE (Exact): {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}",
                 f"• Nifty 50: {nifty50['close']} ({nifty50['change']}%)",
                 f"• Monthly RSI: {nifty50['monthly_rsi']}",
-                "──────────────────────",
+                "──────────────────────────",
                 "🏛️ ACTIONABLE CATEGORY MATRIX\n"
             ]
 
@@ -405,12 +405,12 @@ if __name__ == "__main__":
                 ])
                 summary_actions.append(f"• Small: {small_stage['short_action']}")
 
-            msg_lines.append("──────────────────────")
+            msg_lines.append("──────────────────────────")
             msg_lines.append("💡 SUMMARY ACTION")
             msg_lines.extend(summary_actions)
 
             msg_lines.extend([
-                "\n──────────────────────",
+                "\n──────────────────────────",
                 "📖 8-STAGE QUICK GUIDE\n",
                 "1. 🔥 Extreme High (All-Time Peak)",
                 "   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan",
@@ -428,7 +428,7 @@ if __name__ == "__main__":
                 "   └ 🟢 SIP + 75% Extra",
                 "8. 🛑 Market Crash (25%+ - JackPot Buy)",
                 "   └ 🚀 SIP + Max Lumpsum Buy",
-                "\n──────────────────────",
+                "\n──────────────────────────",
                 "📌 IMPORTANT NOTES & RULES\n",
                 "• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.",
                 "• RSI (<30 Cheap | >70 High)",
