@@ -1,5 +1,6 @@
 import os
 import re
+import argparse
 import requests
 import numpy as np
 import pandas as pd
@@ -13,8 +14,14 @@ from datetime import datetime
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
-def send_telegram(message: str) -> None:
+def send_telegram(message: str, is_test_mode: bool = False) -> None:
     """Sends formatted plain-text alert to Telegram with fail-safe error handling."""
+    if is_test_mode:
+        print("\n=== [TEST MODE OUTPUT: TELEGRAM SKIPPED] ===")
+        print(message)
+        print("===========================================\n")
+        return
+
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or not TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
         print("Telegram configuration missing. Displaying output in console:\n")
         print(message)
@@ -33,22 +40,26 @@ def send_telegram(message: str) -> None:
         print(f"Error sending Telegram notification: {e}")
 
 # ============================================================
-# SAFE MARKET & INDEX DATA FETCHING (HOLIDAY SAFE)
+# SAFE MARKET & INDEX DATA FETCHING (TEST-MODE & HOLIDAY SAFE)
 # ============================================================
 
-def get_index_data(ticker_symbol: str) -> dict:
-    """Fetches historical price data and handles 3-4 days market holidays safely."""
+def get_index_data(ticker_symbol: str, target_date: str = None) -> dict:
+    """Fetches historical price data, supports back-date testing & holiday safe indexing."""
     try:
         ticker = yf.Ticker(ticker_symbol)
-        # 2y period ensures full 200 DMA & RSI calculation even after long holidays
         df = ticker.history(period="2y")
         
         if df.empty or len(df) < 50:
             raise ValueError(f"Insufficient historical price data for {ticker_symbol}")
 
+        # Back-date testing filter
+        if target_date:
+            df = df.loc[:target_date]
+            if df.empty:
+                raise ValueError(f"No data available up to target date: {target_date}")
+
         close_series = df['Close'].dropna()
         
-        # Holiday/Weekend Safe Price Indexing
         latest_close = float(close_series.iloc[-1])
         prev_close = float(close_series.iloc[-2]) if len(close_series) > 1 else latest_close
         
@@ -60,7 +71,6 @@ def get_index_data(ticker_symbol: str) -> dict:
         high_52w = float(df['High'].iloc[-252:].max()) if len(df) >= 252 else float(df['High'].max())
         drawdown = round(((high_52w - latest_close) / high_52w) * 100, 2) if high_52w > 0 else 0.0
 
-        # Dynamic Resampling for RSI without Pandas Warnings
         weekly_df = close_series.resample('W').last().dropna()
         try:
             monthly_df = close_series.resample('ME').last().dropna()
@@ -101,7 +111,7 @@ def get_index_data(ticker_symbol: str) -> dict:
         }
 
 def get_screener_index_pe(index_slug: str, fallback_pe: float) -> float:
-    """Scrapes exact official Index P/E ratio from Screener with headers & multi-pattern regex."""
+    """Scrapes exact official Index P/E ratio from Screener."""
     url = f"https://www.screener.in/company/{index_slug}/"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -110,11 +120,9 @@ def get_screener_index_pe(index_slug: str, fallback_pe: float) -> float:
     try:
         res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200:
-            # Pattern 1: Standard Stock P/E span
             match = re.search(r'Stock P/E.*?>\s*([\d\.]+)\s*<', res.text, re.DOTALL | re.IGNORECASE)
             if match:
                 return float(match.group(1))
-            # Pattern 2: Secondary fallback regex for Screener UI updates
             match_alt = re.search(r'P/E\s*</span>\s*<span[^>]*>\s*([\d\.]+)', res.text, re.IGNORECASE)
             if match_alt:
                 return float(match_alt.group(1))
@@ -122,10 +130,9 @@ def get_screener_index_pe(index_slug: str, fallback_pe: float) -> float:
         print(f"Failed fetching Screener PE for {index_slug}, using safety fallback: {e}")
     return fallback_pe
 
-def get_category_pe_ratios() -> dict:
-    today_str = datetime.now().strftime("%d-%b-%Y")
+def get_category_pe_ratios(override_date: str = None) -> dict:
+    today_str = override_date if override_date else datetime.now().strftime("%d-%b-%Y")
     
-    # Live Scraping with Bulletproof Fallbacks
     large_pe = get_screener_index_pe("Nifty+100", 20.3)
     mid_pe = get_screener_index_pe("Nifty+Midcap+150", 29.5)
     small_pe = get_screener_index_pe("Nifty+Smallcap+250", 27.8)
@@ -159,10 +166,10 @@ def get_india_vix() -> float:
         if not df.empty:
             return round(float(df['Close'].iloc[-1]), 2)
     except Exception as e:
-        print(f"Error fetching India VIX, using standard default: {e}")
+        print(f"Error fetching India VIX: {e}")
     return 15.0
 
-def calculate_breadth(symbols: list) -> dict:
+def calculate_breadth(symbols: list, target_date: str = None) -> dict:
     above_200_count = 0
     total = len(symbols)
     if total == 0:
@@ -171,6 +178,8 @@ def calculate_breadth(symbols: list) -> dict:
     for sym in symbols:
         try:
             df = yf.Ticker(sym).history(period="1y")
+            if target_date:
+                df = df.loc[:target_date]
             if len(df) >= 200:
                 c = df['Close'].iloc[-1]
                 d200 = df['Close'].rolling(200).mean().iloc[-1]
@@ -285,28 +294,39 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
         }
 
 # ============================================================
-# MAIN EXECUTION
+# MAIN EXECUTION WITH ARGPARSE FOR TESTING & LIVE MODES
 # ============================================================
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AI Wealth Manager Automation Script")
+    parser.add_argument("--date", type=str, default=None, help="Back-date test format: YYYY-MM-DD (e.g., 2025-06-15)")
+    parser.add_argument("--test", action="store_true", help="Run in dry-run mode without sending Telegram alert")
+    args = parser.parse_args()
+
+    is_test_mode = args.test or (args.date is not None)
+    target_date = args.date
+
+    if is_test_mode:
+        print(f"🔧 RUNNING IN TEST MODE (Target Date: {target_date if target_date else 'Today'})")
+    else:
+        print("🚀 RUNNING IN LIVE AUTOMATION MODE")
+
     try:
-        print("Fetching real-time market data...")
+        nifty50 = get_index_data("^NSEI", target_date)
+        nifty100 = get_index_data("^CNX100", target_date)
+        midcap150 = get_index_data("NIFTYMIDCAP150.NS", target_date)
+        smallcap250 = get_index_data("NIFTYSMLCAP250.NS", target_date)
 
-        nifty50 = get_index_data("^NSEI")
-        nifty100 = get_index_data("^CNX100")
-        midcap150 = get_index_data("NIFTYMIDCAP150.NS")
-        smallcap250 = get_index_data("NIFTYSMLCAP250.NS")
-
-        pe_data = get_category_pe_ratios()
+        pe_data = get_category_pe_ratios(target_date)
         india_vix = get_india_vix()
 
         large_symbols = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS"]
         mid_symbols = ["FEDERALBNK.NS", "VOLTAS.NS", "POLYCAB.NS"]
         small_symbols = ["CDSL.NS", "ANGELONE.NS", "KEI.NS"]
 
-        large_breadth = calculate_breadth(large_symbols)
-        mid_breadth = calculate_breadth(mid_symbols)
-        small_breadth = calculate_breadth(small_symbols)
+        large_breadth = calculate_breadth(large_symbols, target_date)
+        mid_breadth = calculate_breadth(mid_symbols, target_date)
+        small_breadth = calculate_breadth(small_symbols, target_date)
 
         large_score = god_score(nifty100["close"], nifty100["dma50"], nifty100["dma200"], nifty100["weekly_rsi"], nifty100["monthly_rsi"], nifty100["drawdown"], india_vix, large_breadth["pct200"])
         mid_score = god_score(midcap150["close"], midcap150["dma50"], midcap150["dma200"], midcap150["weekly_rsi"], midcap150["monthly_rsi"], midcap150["drawdown"], india_vix, mid_breadth["pct200"])
@@ -318,25 +338,21 @@ if __name__ == "__main__":
         mid_stage = get_category_stage(midcap150["drawdown"], midcap150["weekly_rsi"], pe_data["mid_pe"], india_vix)
         small_stage = get_category_stage(smallcap250["drawdown"], smallcap250["weekly_rsi"], pe_data["small_pe"], india_vix)
 
-        # TARGET STAGES FOR ACTIONABLE ALERTS: STAGE 1 & STAGES 4 TO 8
         target_stages = [1, 4, 5, 6, 7, 8]
 
         large_alert = large_stage["stage_num"] in target_stages
         mid_alert = mid_stage["stage_num"] in target_stages
         small_alert = small_stage["stage_num"] in target_stages
 
-        if not (large_alert or mid_alert or small_alert):
+        if not (large_alert or mid_alert or small_alert) and not is_test_mode:
             print("All categories are in Stage 2 or 3 (Normal/Bull Zone). Telegram notification skipped.")
         else:
-            print("Actionable conditions detected! Constructing target category alert...")
-
             large_pe_status = get_pe_status("large", pe_data["large_pe"])
             mid_pe_status = get_pe_status("mid", pe_data["mid_pe"])
             small_pe_status = get_pe_status("small", pe_data["small_pe"])
 
-            # BUILD TELEGRAM ALERT BODY
             msg_lines = [
-                "🚨 ACTION ALERT: AI WEALTH MANAGER",
+                "🚨 ACTION ALERT: AI WEALTH MANAGER" + (" [TEST RUN]" if is_test_mode else ""),
                 f"{pe_data['date']}",
                 "──────────────────────",
                 "🌡️ MARKET METRICS",
@@ -350,8 +366,7 @@ if __name__ == "__main__":
 
             summary_actions = []
 
-            # 1. LARGE CAP SECTION
-            if large_alert:
+            if large_alert or is_test_mode:
                 msg_lines.extend([
                     "🏛️ LARGE CAP",
                     f"• Stage: {large_stage['stage']}",
@@ -364,8 +379,7 @@ if __name__ == "__main__":
                 ])
                 summary_actions.append(f"• Large: {large_stage['short_action']}")
 
-            # 2. MID CAP SECTION
-            if mid_alert:
+            if mid_alert or is_test_mode:
                 msg_lines.extend([
                     "📈 MID CAP",
                     f"• Stage: {mid_stage['stage']}",
@@ -378,8 +392,7 @@ if __name__ == "__main__":
                 ])
                 summary_actions.append(f"• Mid: {mid_stage['short_action']}")
 
-            # 3. SMALL CAP SECTION
-            if small_alert:
+            if small_alert or is_test_mode:
                 msg_lines.extend([
                     "🚀 SMALL CAP",
                     f"• Stage: {small_stage['stage']}",
@@ -392,11 +405,10 @@ if __name__ == "__main__":
                 ])
                 summary_actions.append(f"• Small: {small_stage['short_action']}")
 
-            # SUMMARY & GUIDES
             msg_lines.append("──────────────────────")
             msg_lines.append("💡 SUMMARY ACTION")
             msg_lines.extend(summary_actions)
-            
+
             msg_lines.extend([
                 "\n──────────────────────",
                 "📖 8-STAGE QUICK GUIDE\n",
@@ -429,7 +441,7 @@ if __name__ == "__main__":
             ])
 
             final_message = "\n".join(msg_lines)
-            send_telegram(final_message)
+            send_telegram(final_message, is_test_mode)
 
     except Exception as e:
         print(f"Error executing AI Wealth Manager: {e}")
