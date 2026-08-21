@@ -306,10 +306,10 @@ if __name__ == "__main__":
 • Nifty 50: {nifty50['close']} ({nifty50['change']}%)
 • Monthly RSI: {nifty50['monthly_rsi']}
 
-──────────────────────────
+──────────────────────
 🏛️ CATEGORY MATRIX
 
-🔵 LARGE CAP
+📊 LARGE CAP
 • Stage: {large_stage['stage']}
 • SIP Status: 100% Active
 • Lumpsum: {large_stage['lumpsum_pct']}
@@ -319,7 +319,7 @@ if __name__ == "__main__":
 • wRSI / mRSI: {nifty100['weekly_rsi']} / {nifty100['monthly_rsi']}
 • DMA: {nifty100['trend']}
 
-🟡 MID CAP
+📊 MID CAP
 • Stage: {mid_stage['stage']}
 • SIP Status: 100% Active
 • Lumpsum: {mid_stage['lumpsum_pct']}
@@ -329,7 +329,7 @@ if __name__ == "__main__":
 • wRSI / mRSI: {midcap150['weekly_rsi']} / {midcap150['monthly_rsi']}
 • DMA: {midcap150['trend']}
 
-🟠 SMALL CAP
+📊 SMALL CAP
 • Stage: {small_stage['stage']}
 • SIP Status: 100% Active
 • Lumpsum: {small_stage['lumpsum_pct']}
@@ -339,7 +339,7 @@ if __name__ == "__main__":
 • wRSI / mRSI: {smallcap250['weekly_rsi']} / {smallcap250['monthly_rsi']}
 • DMA: {smallcap250['trend']}
 
-──────────────────────────
+──────────────────────
 💡 SUMMARY ACTION
 Large: {large_stage['short_action']}
 Mid: {mid_stage['short_action']}
