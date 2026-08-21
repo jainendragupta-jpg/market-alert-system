@@ -57,7 +57,7 @@ def get_index_data(ticker_symbol: str) -> dict:
         weekly_df = close_series.resample('W').last()
         try:
             monthly_df = close_series.resample('ME').last()
-        except ValueError:
+        except Exception:
             monthly_df = close_series.resample('M').last()
 
         def compute_rsi(series: pd.Series, period: int = 14) -> float:
@@ -99,7 +99,7 @@ def get_dynamic_category_pe(symbols: list, default_pe: float) -> float:
             info = t.info
             pe = info.get("trailingPE") or info.get("forwardPE")
             if pe and pe > 0:
-                pe_list.append(pe)
+                pe_list.append(float(pe))
         except Exception:
             continue
     return round(float(np.mean(pe_list)), 2) if pe_list else default_pe
@@ -321,15 +321,17 @@ if __name__ == "__main__":
 
             message = f"""🚨 ACTION ALERT: AI WEALTH MANAGER
 {pe_data['date']}
-─────────────────────
+──────────────────────────
 🌡️ MARKET METRICS
 • Score: {overall_score}/100 ({score_status(overall_score)})
 • Nifty PE (Live): {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}
 • Nifty 50: {nifty50['close']} ({nifty50['change']}%)
 • Monthly RSI: {nifty50['monthly_rsi']}
 
-─────────────────────
-📊 LARGE CAP: NIFTY 100
+──────────────────────────
+🏛️ CATEGORY MATRIX
+
+🏛️ LARGE CAP
 • Stage: {large_stage['stage']}
 • SIP Status: {large_stage['sip_status']}
 • Action: {large_stage['lumpsum_pct']}
@@ -338,16 +340,16 @@ if __name__ == "__main__":
 • Weekly RSI: {nifty100['weekly_rsi']:.2f} | Monthly RSI: {nifty100['monthly_rsi']:.2f}
 • DMA Trend: {nifty100['trend']}
 
-📊 MID CAP:NIFTY MIDCAP150
+📈 MID CAP
 • Stage: {mid_stage['stage']}
 • SIP Status: {mid_stage['sip_status']}
 • Action: {mid_stage['lumpsum_pct']}
-• Live PE: {mid_pe_status} ({pe_data['mid_pe']:.2f})
+• Live PE: {pe_data['mid_pe']:.2f} ({mid_pe_status})
 • Price: {midcap150['close']} (-{midcap150['drawdown']}%)
 • Weekly RSI: {midcap150['weekly_rsi']:.2f} | Monthly RSI: {midcap150['monthly_rsi']:.2f}
 • DMA Trend: {midcap150['trend']}
 
-📊 SMALL CAP:NIFTY SMALLCAP250
+🚀 SMALL CAP
 • Stage: {small_stage['stage']}
 • SIP Status: {small_stage['sip_status']}
 • Action: {small_stage['lumpsum_pct']}
@@ -356,13 +358,13 @@ if __name__ == "__main__":
 • Weekly RSI: {smallcap250['weekly_rsi']:.2f} | Monthly RSI: {smallcap250['monthly_rsi']:.2f}
 • DMA Trend: {smallcap250['trend']}
 
-─────────────────────
+──────────────────────────
 💡 SUMMARY ACTION
 • Large: {large_stage['short_action']}
 • Mid: {mid_stage['short_action']}
 • Small: {small_stage['short_action']}
 
-─────────────────────
+──────────────────────────
 📖 8-STAGE QUICK GUIDE
 
 1. 🔥 Extreme High (All-Time Peak)
@@ -382,7 +384,7 @@ if __name__ == "__main__":
 8. 🛑 Market Crash (25%+ - JackPot Buy)
    └ 🚀 SIP + Max Lumpsum Buy
 
-─────────────────────
+──────────────────────────
 📌 IMPORTANT NOTES & RULES
 
 • NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.
@@ -391,7 +393,7 @@ if __name__ == "__main__":
 • Drawdown (% Drop from 52W High)
 
 📊 PE RATIO GUIDE:
-• Large Cap: <19 Cheap | >24 High
+• Large Cap: <18 Cheap | >24 High
 • Mid Cap:   <24 Cheap | >32 High
 • Small Cap: <20 Cheap | >28 High
 """
