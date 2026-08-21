@@ -239,7 +239,7 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
     elif drawdown_52w >= 25.0 or weekly_rsi < 30:
         return {
             "stage_num": 8,
-            "stage": "🛑 Market Crash (Stg 8)",
+            "stage": "💎 Market Crash (Stg 8)",
             "sip_status": "Active 🟢",
             "lumpsum_pct": "SIP + Max Lumpsum Buy 🚀",
             "short_action": "SIP + Max Lumpsum Buy 🚀"
@@ -426,7 +426,7 @@ if __name__ == "__main__":
                 "   └ 🟢 SIP + 50% Extra",
                 "7. 📉 Heavy Discount (15%+ - Mega Buy)",
                 "   └ 🟢 SIP + 75% Extra",
-                "8. 🛑 Market Crash (25%+ - JackPot Buy)",
+                "8. 💎 Market Crash (25%+ - JackPot Buy)",
                 "   └ 🚀 SIP + Max Lumpsum Buy",
                 "\n──────────────────────────",
                 "📌 IMPORTANT NOTES & RULES\n",
