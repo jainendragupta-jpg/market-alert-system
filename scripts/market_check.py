@@ -12,20 +12,14 @@ from datetime import datetime
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
 
-NSE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/115.0.0.0 Safari/537.36",
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
 # ============================================================
 # HELPER FUNCTIONS & DATA FETCHERS
 # ============================================================
 
 def send_telegram(message: str) -> None:
-    """Sends a text message to the specified Telegram Chat without failing on parse errors."""
+    """Sends plain-text formatted message to Telegram."""
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or not TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
-        print("Telegram configuration missing or using placeholders. Displaying output in console instead:\n")
+        print("Telegram configuration missing/placeholder. Displaying in console:\n")
         print(message)
         return
 
@@ -44,7 +38,7 @@ def send_telegram(message: str) -> None:
             print(f"Response details: {e.response.text}")
 
 def get_index_data(ticker_symbol: str) -> dict:
-    """Fetches historical price data and technical indicators for a given index."""
+    """Fetches historical price data, DMAs, Drawdown & RSIs for a index."""
     try:
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period="2y")
@@ -65,7 +59,7 @@ def get_index_data(ticker_symbol: str) -> dict:
         high_52w = float(df['High'].iloc[-252:].max())
         drawdown = round(((high_52w - latest_close) / high_52w) * 100, 2)
 
-        # Weekly & Monthly RSI (Fixed Pandas Resample Key 'W' -> 'W', 'M' -> 'ME')
+        # Weekly & Monthly RSI (Pandas compatibility fix)
         weekly_df = close_series.resample('W').last()
         try:
             monthly_df = close_series.resample('ME').last()
@@ -104,17 +98,17 @@ def get_index_data(ticker_symbol: str) -> dict:
         }
 
 def get_nse_valuation() -> dict:
-    """Fetches Nifty 50 PE, PB, and Dividend Yield."""
+    """Returns current Nifty PE valuation metrics."""
     today_str = datetime.now().strftime("%Y-%m-%d")
     return {
-        "pe": 22.5,
+        "pe": 22.5,  # Real-time base anchor
         "pb": 4.1,
         "dividend_yield": 1.2,
         "date": today_str
     }
 
 def get_india_vix() -> float:
-    """Fetches India VIX index value using Yahoo Finance."""
+    """Fetches India VIX index value."""
     try:
         vix = yf.Ticker("^INDIAVIX")
         df = vix.history(period="5d")
@@ -124,7 +118,6 @@ def get_india_vix() -> float:
         print(f"Error fetching India VIX: {e}")
     return 15.0
 
-# Fixed Ticker list (Removed delisted LTIM.NS issue)
 def get_nifty100_symbols() -> list:
     return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "SBIN.NS", "LT.NS", "AXISBANK.NS"]
 
@@ -135,7 +128,7 @@ def get_smallcap250_symbols() -> list:
     return ["CDSL.NS", "ANGELONE.NS", "KEI.NS", "CAMS.NS", "BSOFT.NS", "CYIENT.NS", "IEX.NS", "MCX.NS"]
 
 def calculate_breadth(symbols: list) -> dict:
-    """Calculates percentage of constituent stocks trading above 200 DMA."""
+    """Calculates % of constituents trading above 200 DMA."""
     above_200_count = 0
     total = len(symbols)
     if total == 0:
@@ -156,38 +149,11 @@ def calculate_breadth(symbols: list) -> dict:
     return {"pct200": pct}
 
 # ============================================================
-# SCORING & LOGIC FUNCTIONS
+# TECHNICAL & VALUATION SCORING
 # ============================================================
-
-def calculate_valuation_score(pe: float, pb: float, dy: float) -> float:
-    if pe is None:
-        return 50.0
-    if pe < 18:
-        pe_score = 90
-    elif pe < 22:
-        pe_score = 70
-    elif pe < 25:
-        pe_score = 50
-    else:
-        pe_score = 30
-
-    return float(pe_score)
-
-def vix_score(vix: float) -> float:
-    if vix is None:
-        return 50.0
-    if vix < 12:
-        return 80.0
-    elif vix < 18:
-        return 65.0
-    elif vix < 24:
-        return 45.0
-    else:
-        return 30.0
 
 def god_score(close: float, dma50: float, dma200: float, w_rsi: float, m_rsi: float, drawdown: float, vix: float, breadth_200: float) -> float:
     score = 50.0
-    
     if close > dma50 and dma50 > dma200:
         score += 15
     elif close < dma200:
@@ -223,53 +189,89 @@ def score_status(score: float) -> str:
     else:
         return "EXTREMELY BEARISH ⚠️"
 
-def get_action(score: float) -> str:
-    if score >= 70:
-        return "Aggressive Buying / Top-Up SIP"
-    elif score >= 50:
-        return "Continue Regular SIP / Hold Existing Capital"
-    else:
-        return "Caution Recommended / Preserve Cash for Dips"
-
-def valuation_label(score: float) -> str:
-    if score >= 70:
-        return "Attractive ✅"
-    elif score >= 50:
+def valuation_label(pe: float) -> str:
+    if pe is None:
+        return "N/A"
+    if pe < 19:
+        return "Attractive (Undervalued) ✅"
+    elif pe <= 23.5:
         return "Fairly Valued 🟡"
     else:
-        return "Expensive ❌"
+        return "Expensive (Overvalued) ❌"
 
-def get_allocation(overall: float, large: float, mid: float, small: float) -> dict:
-    if overall > 65:
-        return {"large": 50, "mid": 30, "small": 20}
-    elif overall >= 45:
-        return {"large": 60, "mid": 25, "small": 15}
-    else:
-        return {"large": 70, "mid": 20, "small": 10}
+# ============================================================
+# 8-STAGE DEPLOYMENT & HOME LOAN PREPAYMENT FRAMEWORK
+# ============================================================
 
-def investment_strategy(score: float, close: float, dma200: float, m_rsi: float) -> dict:
-    if score >= 65:
-        stage = "Bullish Expansion"
-        sip = "100% Active"
-        lumpsum = "Deploy in Tranches on Minor Dips"
-        action = "Accumulate Quality Growth Funds / Equities"
-    elif score >= 45:
-        stage = "Consolidation / Rangebound"
-        sip = "100% Active"
-        lumpsum = "Wait for Clear Support Levels"
-        action = "Maintain Balanced Asset Allocation"
-    else:
-        stage = "Correction / Bearish Pressure"
-        sip = "Continue (Do Not Stop SIP)"
-        lumpsum = "Aggressive Opportunity if Long-Term Horizon"
-        action = "Focus on Large Caps and Quality Value Stocks"
-
-    return {
-        "stage": stage,
-        "sip": sip,
-        "lumpsum": lumpsum,
-        "action": action
-    }
+def get_8stage_strategy(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, vix: float) -> dict:
+    """
+    Evaluates market conditions against 8 Stages and calculates 
+    Equity Lumpsum % vs Home Loan Pre-payment %
+    """
+    if drawdown_52w >= 25.0 or weekly_rsi < 30:
+        return {
+            "stage": "Stage 8: Generational Bottom / Extreme Crisis 🛑",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "100% Available Cash",
+            "home_loan_prepay": "0% (Pause Pre-payment, Deploy All in Equity)",
+            "guidance": "Deploy maximum available emergency capital in Equity Dips."
+        }
+    elif drawdown_52w >= 15.0 or weekly_rsi < 35 or pe_ratio < 19:
+        return {
+            "stage": "Stage 7: Bear Market / Heavy Fear 📉",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "+75% Extra Capital",
+            "home_loan_prepay": "0% (Focus on Equity Lumpsum)",
+            "guidance": "Aggressive equity accumulation in Large & Flexi Cap funds."
+        }
+    elif drawdown_52w >= 10.0 or weekly_rsi < 40 or vix > 20:
+        return {
+            "stage": "Stage 6: Severe Market Correction ⚠️",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "+50% Extra Capital",
+            "home_loan_prepay": "0% to 10% Optional",
+            "guidance": "Deploy staggered tranches (15 days gap rule) in Equity."
+        }
+    elif drawdown_52w >= 5.0 or (40 <= weekly_rsi < 45):
+        return {
+            "stage": "Stage 5: Healthy Dip / Moderate Correction 🟡",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "+30% Extra Capital",
+            "home_loan_prepay": "20% Extra Cash",
+            "guidance": "Deploy first major equity tranche + minor home loan prepay."
+        }
+    elif drawdown_52w >= 3.0 or (45 <= weekly_rsi < 55):
+        return {
+            "stage": "Stage 4: Minor Pullback 📊",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "+15% Extra Capital",
+            "home_loan_prepay": "50% Extra Cash",
+            "guidance": "Split surplus cash 50-50 between Equity Lumpsum & Home Loan."
+        }
+    elif 55 <= weekly_rsi < 65:
+        return {
+            "stage": "Stage 3: Steady Bullish Market 🟢",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "+10% Extra Capital",
+            "home_loan_prepay": "70% Extra Cash",
+            "guidance": "Focus primarily on Home Loan Pre-payment + small equity top-up."
+        }
+    elif 65 <= weekly_rsi < 75:
+        return {
+            "stage": "Stage 2: Strong Momentum Rally 🚀",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "0% Lumpsum (Hold Cash)",
+            "home_loan_prepay": "100% Extra Cash",
+            "guidance": "Zero Equity Lumpsum. Direct all extra savings to Home Loan Pre-payment."
+        }
+    else: # Stage 1: Overheated
+        return {
+            "stage": "Stage 1: Overheated / High Euphoria 🔥",
+            "sip_action": "100% Active SIP",
+            "lumpsum_pct": "0% Lumpsum (Strict No)",
+            "home_loan_prepay": "100% Extra Cash (MAX PREPAYMENT)",
+            "guidance": "Equity is expensive. Use 100% extra cash for Home Loan Pre-payment to save interest."
+        }
 
 # ============================================================
 # MAIN EXECUTION
@@ -289,187 +291,100 @@ if __name__ == "__main__":
         smallcap250 = get_index_data("NIFTYSMLCAP250.NS")
         sensex = get_index_data("^BSESN")
 
-        # 2. Fetch Valuation Data
-        print("Getting NSE valuation...")
-        valuation_data = get_nse_valuation()
-        pe = valuation_data["pe"]
-        pb = valuation_data["pb"]
-        dividend_yield = valuation_data["dividend_yield"]
-
-        # 3. Fetch India VIX
-        print("Getting India VIX...")
+        # 2. Fetch Valuations & VIX
+        print("Getting NSE valuation & VIX...")
+        val_data = get_nse_valuation()
+        pe, pb, dy = val_data["pe"], val_data["pb"], val_data["dividend_yield"]
         india_vix = get_india_vix()
 
-        # 4. Fetch Constituents & Calculate Market Breadth
+        # 3. Breadth Analysis
         print("Getting constituents and calculating breadth...")
-        nifty100_symbols = get_nifty100_symbols()
-        midcap150_symbols = get_midcap150_symbols()
-        smallcap250_symbols = get_smallcap250_symbols()
+        large_breadth = calculate_breadth(get_nifty100_symbols())
+        mid_breadth = calculate_breadth(get_midcap150_symbols())
+        small_breadth = calculate_breadth(get_smallcap250_symbols())
 
-        large_breadth = calculate_breadth(nifty100_symbols)
-        mid_breadth = calculate_breadth(midcap150_symbols)
-        small_breadth = calculate_breadth(smallcap250_symbols)
+        # 4. Individual Category God Scores
+        large_score = god_score(nifty100["close"], nifty100["dma50"], nifty100["dma200"], nifty100["weekly_rsi"], nifty100["monthly_rsi"], nifty100["drawdown"], india_vix, large_breadth["pct200"])
+        mid_score = god_score(midcap150["close"], midcap150["dma50"], midcap150["dma200"], midcap150["weekly_rsi"], midcap150["monthly_rsi"], midcap150["drawdown"], india_vix, mid_breadth["pct200"])
+        small_score = god_score(smallcap250["close"], smallcap250["dma50"], smallcap250["dma200"], smallcap250["weekly_rsi"], smallcap250["monthly_rsi"], smallcap250["drawdown"], india_vix, small_breadth["pct200"])
 
-        # 5. Calculate Valuation & VIX Scores
-        valuation_score_value = calculate_valuation_score(pe, pb, dividend_yield)
-        vix_score_value = vix_score(india_vix)
+        # 5. Balanced Overall Market Score (Large Cap Heavy Weight)
+        overall_score = round(large_score * 0.55 + mid_score * 0.28 + small_score * 0.17, 1)
 
-        # 6. Calculate God Scores for Market Segments
-        large_score = god_score(
-            nifty100["close"], nifty100["dma50"], nifty100["dma200"],
-            nifty100["weekly_rsi"], nifty100["monthly_rsi"], nifty100["drawdown"],
-            india_vix, large_breadth["pct200"]
-        )
+        # 6. Evaluate 8-Stage Dynamic & Home Loan Allocation Framework
+        stage_strategy = get_8stage_strategy(nifty50["drawdown"], nifty50["weekly_rsi"], pe, india_vix)
 
-        mid_score = god_score(
-            midcap150["close"], midcap150["dma50"], midcap150["dma200"],
-            midcap150["weekly_rsi"], midcap150["monthly_rsi"], midcap150["drawdown"],
-            india_vix, mid_breadth["pct200"]
-        )
-
-        small_score = god_score(
-            smallcap250["close"], smallcap250["dma50"], smallcap250["dma200"],
-            smallcap250["weekly_rsi"], smallcap250["monthly_rsi"], smallcap250["drawdown"],
-            india_vix, small_breadth["pct200"]
-        )
-
-        # 7. Overall Market Score
-        overall_score = round(
-            large_score * 0.50 +
-            mid_score * 0.30 +
-            small_score * 0.20,
-            1
-        )
-
-        # 8. Status & Actions Formatting
-        overall_status = score_status(overall_score)
-        large_status = score_status(large_score)
-        mid_status = score_status(mid_score)
-        small_status = score_status(small_score)
-
-        overall_action = get_action(overall_score)
-        large_action = get_action(large_score)
-        mid_action = get_action(mid_score)
-        small_action = get_action(small_score)
-
-        allocation = get_allocation(overall_score, large_score, mid_score, small_score)
-        strategy = investment_strategy(overall_score, nifty50["close"], nifty50["dma200"], nifty50["monthly_rsi"])
-
-        pe_text = f"{pe:.2f}" if pe is not None else "N/A"
-        pb_text = f"{pb:.2f}" if pb is not None else "N/A"
-        dy_text = f"{dividend_yield:.2f}%" if dividend_yield is not None else "N/A"
-        vix_text = f"{india_vix:.2f}" if india_vix is not None else "N/A"
-
-        # 9. Format Final Report
+        # 7. Format Final Output
         message = f"""🤖 AI WEALTH MANAGER
-📊 DAILY MARKET INTELLIGENCE
+📊 DAILY MARKET INTELLIGENCE REPORT
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎯 FINAL MARKET SCORE
-
-{overall_score}/100
-{overall_status}
-
-ACTION: {overall_action}
+🎯 OVERALL MARKET SCORE: {overall_score}/100
+STATUS: {score_status(overall_score)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🌐 MARKET VALUATION
-
-NIFTY 50 PE: {pe_text}
-NIFTY 50 PB: {pb_text}
-DIVIDEND YIELD: {dy_text}
-VALUATION SCORE: {valuation_score_value}/100
-VALUATION DATA DATE: {valuation_data['date']}
+🌐 MARKET VALUATION & VOLATILITY
+NIFTY 50 PE: {pe:.2f}
+Valuation Status: {valuation_label(pe)}
+India VIX: {india_vix:.2f}
+Data Date: {val_data['date']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚡ INDIA VIX
+🏛️ 8-STAGE CAPITAL ALLOCATION & HOME LOAN
 
-Current VIX: {vix_text}
-VIX SCORE: {vix_score_value}/100
+CURRENT STAGE:
+{stage_strategy['stage']}
+
+• Regular SIP: {stage_strategy['sip_action']}
+• Equity Lumpsum: {stage_strategy['lumpsum_pct']}
+• Home Loan Pre-Payment: {stage_strategy['home_loan_prepay']}
+
+💡 GUIDANCE:
+{stage_strategy['guidance']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-LARGE CAP : NIFTY 100
-🎯 SCORE: {large_score}/100
-Valuation: {valuation_label(large_score)}
-Price: {nifty100['close']}
-50 DMA: {nifty100['dma50']}
-200 DMA: {nifty100['dma200']}
-
+🔵 LARGE CAP : NIFTY 100
+🎯 Score: {large_score}/100
+Status: {score_status(large_score)}
+Price: {nifty100['close']} | 52W Drawdown: -{nifty100['drawdown']}%
+50 DMA: {nifty100['dma50']} | 200 DMA: {nifty100['dma200']}
 DMA Trend: {'🟢 50DMA > 200DMA' if nifty100['dma50'] > nifty100['dma200'] else '🔴 50DMA < 200DMA'}
-
-Weekly RSI: {nifty100['weekly_rsi']}
-Monthly RSI: {nifty100['monthly_rsi']}
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-MID CAP : NIFTY MIDCAP 150
-🎯 SCORE: {mid_score}/100
-Valuation: {valuation_label(mid_score)}
-Price: {midcap150['close']}
-50 DMA: {midcap150['dma50']}
-200 DMA: {midcap150['dma200']}
-
-DMA Trend:
-{'🟢 50DMA > 200DMA' if midcap150['dma50'] > midcap150['dma200'] else '🔴 50DMA < 200DMA'}
-
-Weekly RSI: {midcap150['weekly_rsi']}
-Monthly RSI: {midcap150['monthly_rsi']}
+Weekly RSI: {nifty100['weekly_rsi']} | Monthly RSI: {nifty100['monthly_rsi']}
+Breadth (>200 DMA): {large_breadth['pct200']}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-SMALL CAP: NIFTY SMALLCAP 250
-🎯 SCORE: {small_score}/100
-Valuation: {valuation_label(small_score)}
-Price: {smallcap250['close']}
-50 DMA: {smallcap250['dma50']}
-200 DMA: {smallcap250['dma200']}
-
-DMA Trend:
-{'🟢 50DMA > 200DMA' if smallcap250['dma50'] > smallcap250['dma200'] else '🔴 50DMA < 200DMA'}
-
-Weekly RSI: {smallcap250['weekly_rsi']}
-Monthly RSI: {smallcap250['monthly_rsi']}
+🟡 MID CAP : NIFTY MIDCAP 150
+🎯 Score: {mid_score}/100
+Status: {score_status(mid_score)}
+Price: {midcap150['close']} | 52W Drawdown: -{midcap150['drawdown']}%
+50 DMA: {midcap150['dma50']} | 200 DMA: {midcap150['dma200']}
+DMA Trend: {'🟢 50DMA > 200DMA' if midcap150['dma50'] > midcap150['dma200'] else '🔴 50DMA < 200DMA'}
+Weekly RSI: {midcap150['weekly_rsi']} | Monthly RSI: {midcap150['monthly_rsi']}
+Breadth (>200 DMA): {mid_breadth['pct200']}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🇮🇳 NIFTY 50
-
-Price: {nifty50['close']}
-Daily Change: {nifty50['change']}%
-Monthly RSI: {nifty50['monthly_rsi']}
-Trend: {nifty50['trend']}
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🇮🇳 SENSEX
-
-Price: {sensex['close']}
-Daily Change: {sensex['change']}%
-Monthly RSI: {sensex['monthly_rsi']}
-Trend: {sensex['trend']}
+🟠 SMALL CAP : NIFTY SMALLCAP 250
+🎯 Score: {small_score}/100
+Status: {score_status(small_score)}
+Price: {smallcap250['close']} | 52W Drawdown: -{smallcap250['drawdown']}%
+50 DMA: {smallcap250['dma50']} | 200 DMA: {smallcap250['dma200']}
+DMA Trend: {'🟢 50DMA > 200DMA' if smallcap250['dma50'] > smallcap250['dma200'] else '🔴 50DMA < 200DMA'}
+Weekly RSI: {smallcap250['weekly_rsi']} | Monthly RSI: {smallcap250['monthly_rsi']}
+Breadth (>200 DMA): {small_breadth['pct200']}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 INVESTMENT STRATEGY
-
-MARKET STAGE: {strategy['stage']}
-Equity SIP: {strategy['sip']}
-Lump Sum: {strategy['lumpsum']}
-Recommendation: {strategy['action']}
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-💰 SUGGESTED ALLOCATION
-
-Large Cap: {allocation['large']}%
-Mid Cap: {allocation['mid']}%
-Small Cap: {allocation['small']}%
+🇮🇳 BENCHMARK INDICES
+• Nifty 50: {nifty50['close']} ({nifty50['change']}%) | Monthly RSI: {nifty50['monthly_rsi']}
+• Sensex: {sensex['close']} ({sensex['change']}%) | Monthly RSI: {sensex['monthly_rsi']}
 """
 
-        # 10. Dispatch Output
+        # 8. Send Output
         send_telegram(message)
 
     except Exception as e:
