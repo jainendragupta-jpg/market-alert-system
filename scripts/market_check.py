@@ -57,7 +57,7 @@ def get_index_data(ticker_symbol: str) -> dict:
         weekly_df = close_series.resample('W').last()
         try:
             monthly_df = close_series.resample('ME').last()
-        except Exception:
+        except ValueError:
             monthly_df = close_series.resample('M').last()
 
         def compute_rsi(series: pd.Series, period: int = 14) -> float:
@@ -99,7 +99,7 @@ def get_dynamic_category_pe(symbols: list, default_pe: float) -> float:
             info = t.info
             pe = info.get("trailingPE") or info.get("forwardPE")
             if pe and pe > 0:
-                pe_list.append(float(pe))
+                pe_list.append(pe)
         except Exception:
             continue
     return round(float(np.mean(pe_list)), 2) if pe_list else default_pe
@@ -269,7 +269,7 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
         }
 
 # ============================================================
-# MAIN EXECUTION WITH SCHEDULE FILTER
+# MAIN EXECUTION WITH DYNAMIC CATEGORY ALERT FILTER
 # ============================================================
 
 if __name__ == "__main__":
@@ -302,102 +302,118 @@ if __name__ == "__main__":
         mid_stage = get_category_stage(midcap150["drawdown"], midcap150["weekly_rsi"], pe_data["mid_pe"], india_vix)
         small_stage = get_category_stage(smallcap250["drawdown"], smallcap250["weekly_rsi"], pe_data["small_pe"], india_vix)
 
-        # TRIGGER SCHEDULE FILTER: STAGE 1 OR STAGES 4, 5, 6, 7, 8
+        # TARGET STAGES FOR ACTIONABLE ALERTS: STAGE 1 & STAGES 4 TO 8
         target_stages = [1, 4, 5, 6, 7, 8]
-        action_needed = any([
-            large_stage["stage_num"] in target_stages,
-            mid_stage["stage_num"] in target_stages,
-            small_stage["stage_num"] in target_stages
-        ])
 
-        if not action_needed:
-            print("Market in Normal/Bull Zone (Stage 2 or 3). Notification skipped.")
+        large_alert = large_stage["stage_num"] in target_stages
+        mid_alert = mid_stage["stage_num"] in target_stages
+        small_alert = small_stage["stage_num"] in target_stages
+
+        if not (large_alert or mid_alert or small_alert):
+            print("All categories are in Stage 2 or 3 (Normal/Bull Zone). Telegram notification skipped.")
         else:
-            print("Actionable condition met (Stage 1 or Stage 4-8). Dispatching Telegram alert...")
+            print("Actionable conditions detected! Constructing target category alert...")
 
             large_pe_status = get_pe_status("large", pe_data["large_pe"])
             mid_pe_status = get_pe_status("mid", pe_data["mid_pe"])
             small_pe_status = get_pe_status("small", pe_data["small_pe"])
 
-            message = f"""🚨 ACTION ALERT: AI WEALTH MANAGER
-{pe_data['date']}
-──────────────────────────
-🌡️ MARKET METRICS
-• Score: {overall_score}/100 ({score_status(overall_score)})
-• Nifty PE (Live): {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}
-• Nifty 50: {nifty50['close']} ({nifty50['change']}%)
-• Monthly RSI: {nifty50['monthly_rsi']}
+            # BUILD TELEGRAM ALERT BODY
+            msg_lines = [
+                "🚨 ACTION ALERT: AI WEALTH MANAGER",
+                f"{pe_data['date']}",
+                "──────────────────────",
+                "🌡️ MARKET METRICS",
+                f"• Score: {overall_score}/100 ({score_status(overall_score)})",
+                f"• Nifty PE (Live): {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}",
+                f"• Nifty 50: {nifty50['close']} ({nifty50['change']}%)",
+                f"• Monthly RSI: {nifty50['monthly_rsi']}",
+                "──────────────────────",
+                "🏛️ ACTIONABLE CATEGORY MATRIX\n"
+            ]
 
-──────────────────────────
-🏛️ CATEGORY MATRIX
+            summary_actions = []
 
-🏛️ LARGE CAP
-• Stage: {large_stage['stage']}
-• SIP Status: {large_stage['sip_status']}
-• Action: {large_stage['lumpsum_pct']}
-• Live PE: {pe_data['large_pe']:.2f} ({large_pe_status})
-• Price: {nifty100['close']} (-{nifty100['drawdown']}%)
-• Weekly RSI: {nifty100['weekly_rsi']:.2f} | Monthly RSI: {nifty100['monthly_rsi']:.2f}
-• DMA Trend: {nifty100['trend']}
+            # 1. LARGE CAP SECTION
+            if large_alert:
+                msg_lines.extend([
+                    "🏛️ LARGE CAP",
+                    f"• Stage: {large_stage['stage']}",
+                    f"• SIP Status: {large_stage['sip_status']}",
+                    f"• Action: {large_stage['lumpsum_pct']}",
+                    f"• Live PE: {pe_data['large_pe']:.2f} ({large_pe_status})",
+                    f"• Price: {nifty100['close']} (-{nifty100['drawdown']}%)",
+                    f"• Weekly RSI: {nifty100['weekly_rsi']:.2f} | Monthly RSI: {nifty100['monthly_rsi']:.2f}",
+                    f"• DMA Trend: {nifty100['trend']}\n"
+                ])
+                summary_actions.append(f"• Large: {large_stage['short_action']}")
 
-📈 MID CAP
-• Stage: {mid_stage['stage']}
-• SIP Status: {mid_stage['sip_status']}
-• Action: {mid_stage['lumpsum_pct']}
-• Live PE: {pe_data['mid_pe']:.2f} ({mid_pe_status})
-• Price: {midcap150['close']} (-{midcap150['drawdown']}%)
-• Weekly RSI: {midcap150['weekly_rsi']:.2f} | Monthly RSI: {midcap150['monthly_rsi']:.2f}
-• DMA Trend: {midcap150['trend']}
+            # 2. MID CAP SECTION
+            if mid_alert:
+                msg_lines.extend([
+                    "📈 MID CAP",
+                    f"• Stage: {mid_stage['stage']}",
+                    f"• SIP Status: {mid_stage['sip_status']}",
+                    f"• Action: {mid_stage['lumpsum_pct']}",
+                    f"• Live PE: {pe_data['mid_pe']:.2f} ({mid_pe_status})",
+                    f"• Price: {midcap150['close']} (-{midcap150['drawdown']}%)",
+                    f"• Weekly RSI: {midcap150['weekly_rsi']:.2f} | Monthly RSI: {midcap150['monthly_rsi']:.2f}",
+                    f"• DMA Trend: {midcap150['trend']}\n"
+                ])
+                summary_actions.append(f"• Mid: {mid_stage['short_action']}")
 
-🚀 SMALL CAP
-• Stage: {small_stage['stage']}
-• SIP Status: {small_stage['sip_status']}
-• Action: {small_stage['lumpsum_pct']}
-• Live PE: {pe_data['small_pe']:.2f} ({small_pe_status})
-• Price: {smallcap250['close']} (-{smallcap250['drawdown']}%)
-• Weekly RSI: {smallcap250['weekly_rsi']:.2f} | Monthly RSI: {smallcap250['monthly_rsi']:.2f}
-• DMA Trend: {smallcap250['trend']}
+            # 3. SMALL CAP SECTION
+            if small_alert:
+                msg_lines.extend([
+                    "🚀 SMALL CAP",
+                    f"• Stage: {small_stage['stage']}",
+                    f"• SIP Status: {small_stage['sip_status']}",
+                    f"• Action: {small_stage['lumpsum_pct']}",
+                    f"• Live PE: {pe_data['small_pe']:.2f} ({small_pe_status})",
+                    f"• Price: {smallcap250['close']} (-{smallcap250['drawdown']}%)",
+                    f"• Weekly RSI: {smallcap250['weekly_rsi']:.2f} | Monthly RSI: {smallcap250['monthly_rsi']:.2f}",
+                    f"• DMA Trend: {smallcap250['trend']}\n"
+                ])
+                summary_actions.append(f"• Small: {small_stage['short_action']}")
 
-──────────────────────────
-💡 SUMMARY ACTION
-• Large: {large_stage['short_action']}
-• Mid: {mid_stage['short_action']}
-• Small: {small_stage['short_action']}
+            # SUMMARY & GUIDES
+            msg_lines.append("──────────────────────")
+            msg_lines.append("💡 SUMMARY ACTION")
+            msg_lines.extend(summary_actions)
+            
+            msg_lines.extend([
+                "\n──────────────────────",
+                "📖 8-STAGE QUICK GUIDE\n",
+                "1. 🔥 Extreme High (All-Time Peak)",
+                "   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan",
+                "2. 🚀 Bull Run (High Zone)",
+                "   └ 🔴 Normal SIP | Prepay Loan",
+                "3. 🟢 Normal Market (Fair Price)",
+                "   └ 🟡 Normal SIP Only (0% Lumpsum)",
+                "4. 📊 Small Discount (2-3% Dip)",
+                "   └ 🟢 SIP + 10% Extra",
+                "5. 🟡 Good Discount (5% Dip)",
+                "   └ 🟢 SIP + 25% Extra",
+                "6. ⚠️ Big Discount (10% Drop - Buy)",
+                "   └ 🟢 SIP + 50% Extra",
+                "7. 📉 Heavy Discount (15%+ - Mega Buy)",
+                "   └ 🟢 SIP + 75% Extra",
+                "8. 🛑 Market Crash (25%+ - JackPot Buy)",
+                "   └ 🚀 SIP + Max Lumpsum Buy",
+                "\n──────────────────────",
+                "📌 IMPORTANT NOTES & RULES\n",
+                "• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.",
+                "• RSI (<30 Cheap | >70 High)",
+                "• DMA (50<200 Discount 🟢 | 50>200 High 🔴)",
+                "• Drawdown (% Drop from 52W High)\n",
+                "📊 PE RATIO GUIDE:",
+                "• Large Cap: <18 Cheap | >24 High",
+                "• Mid Cap:   <24 Cheap | >32 High",
+                "• Small Cap: <20 Cheap | >28 High"
+            ])
 
-──────────────────────────
-📖 8-STAGE QUICK GUIDE
-
-1. 🔥 Extreme High (All-Time Peak)
-   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan
-2. 🚀 Bull Run (High Zone)
-   └ 🔴 Normal SIP | Prepay Loan
-3. 🟢 Normal Market (Fair Price)
-   └ 🟡 Normal SIP Only (0% Lumpsum)
-4. 📊 Small Discount (2-3% Dip)
-   └ 🟢 SIP + 10% Extra
-5. 🟡 Good Discount (5% Dip)
-   └ 🟢 SIP + 25% Extra
-6. ⚠️ Big Discount (10% Drop - Buy)
-   └ 🟢 SIP + 50% Extra
-7. 📉 Heavy Discount (15%+ - Mega Buy)
-   └ 🟢 SIP + 75% Extra
-8. 🛑 Market Crash (25%+ - JackPot Buy)
-   └ 🚀 SIP + Max Lumpsum Buy
-
-──────────────────────────
-📌 IMPORTANT NOTES & RULES
-
-• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.
-• RSI (<30 Cheap | >70 High)
-• DMA (50<200 Discount 🟢 | 50>200 High 🔴)
-• Drawdown (% Drop from 52W High)
-
-📊 PE RATIO GUIDE:
-• Large Cap: <18 Cheap | >24 High
-• Mid Cap:   <24 Cheap | >32 High
-• Small Cap: <20 Cheap | >28 High
-"""
-            send_telegram(message)
+            final_message = "\n".join(msg_lines)
+            send_telegram(final_message)
 
     except Exception as e:
         print(f"Error executing AI Wealth Manager: {e}")
