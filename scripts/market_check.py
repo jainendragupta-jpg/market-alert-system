@@ -66,6 +66,29 @@ def send_telegram(message):
 # ============================================================
 
 def get_index_data(symbol):
+
+weekly = yf.Ticker(symbol).history(
+    period="5y",
+    interval="1wk",
+    auto_adjust=False
+)
+
+weekly_close = weekly["Close"].dropna()
+
+weekly_delta = weekly_close.diff()
+weekly_gain = weekly_delta.clip(lower=0)
+weekly_loss = -weekly_delta.clip(upper=0)
+
+weekly_avg_gain = weekly_gain.rolling(14).mean()
+weekly_avg_loss = weekly_loss.rolling(14).mean()
+
+weekly_rs = weekly_avg_gain / weekly_avg_loss.replace(0, np.nan)
+weekly_rsi_series = 100 - (100 / (1 + weekly_rs))
+
+weekly_rsi = float(
+    weekly_rsi_series.dropna().iloc[-1]
+)
+    
     data = yf.Ticker(symbol).history(
         period=HISTORY_PERIOD,
         interval="1d",
@@ -82,6 +105,13 @@ def get_index_data(symbol):
 
     current = float(close.iloc[-1])
     previous = float(close.iloc[-2])
+
+high_52w = float(close.tail(252).max())
+
+drawdown = (
+    (high_52w - current)
+    / high_52w
+) * 100
 
     change = ((current - previous) / previous) * 100
 
@@ -150,18 +180,26 @@ def get_index_data(symbol):
     else:
         trend = "NEUTRAL"
 
-    return {
-        "close": round(current, 2),
-        "change": round(change, 2),
-        "dma50": round(float(dma50), 2),
-        "dma200": round(float(dma200), 2),
-        "vs50": round(float(vs50), 2),
-        "vs200": round(float(vs200), 2),
-        "rsi": round(rsi, 2),
-        "monthly_rsi": round(monthly_rsi, 2),
-        "rsi_status": rsi_status,
-        "trend": trend
-    }
+return {
+    "close": round(current, 2),
+    "change": round(change, 2),
+
+    "dma50": round(float(dma50), 2),
+    "dma200": round(float(dma200), 2),
+
+    "vs50": round(float(vs50), 2),
+    "vs200": round(float(vs200), 2),
+
+    "rsi": round(rsi, 2),
+    "weekly_rsi": round(weekly_rsi, 2),
+    "monthly_rsi": round(monthly_rsi, 2),
+
+    "high_52w": round(high_52w, 2),
+    "drawdown": round(drawdown, 2),
+
+    "rsi_status": rsi_status,
+    "trend": trend
+}
 
 
 # ============================================================
@@ -469,10 +507,56 @@ def vix_score(vix):
         return 25
     return 15
 
+def god_score(
+    price,
+    dma50,
+    dma200,
+    weekly_rsi,
+    monthly_rsi,
+    drawdown,
+    vix,
+    breadth
+):
+    score = 50
 
-def final_market_score(technical, valuation, vix):
-    score = technical * 0.50 + valuation * 0.30 + vix * 0.20
-    return round(min(max(score, 0), 100), 1)
+    if price < dma200:
+        score += 15
+    elif price < dma50:
+        score += 8
+    elif price > dma50 * 1.12:
+        score -= 12
+
+    if dma50 < dma200:
+        score += 10
+
+    if monthly_rsi > 72 and weekly_rsi > 68:
+        score -= 20
+    elif monthly_rsi > 65:
+        score -= 10
+    elif monthly_rsi < 35 and weekly_rsi < 30:
+        score += 25
+    elif weekly_rsi < 40:
+        score += 12
+
+    if drawdown >= 15:
+        score += 20
+    elif drawdown >= 8:
+        score += 12
+    elif drawdown >= 3:
+        score += 5
+
+    if vix > 24:
+        score += 10
+    elif vix < 11.5:
+        score -= 8
+
+    if breadth < 25:
+        score += 10
+    elif breadth > 85:
+        score -= 8
+
+    return max(0,min(100,score))
+
 
 
 def score_status(score):
@@ -490,17 +574,27 @@ def score_status(score):
 
 
 def get_action(score):
-    if score >= 80:
-        return "INVEST AGGRESSIVELY 🟢"
-    if score >= 70:
-        return "INVEST 🟢"
-    if score >= 60:
-        return "SELECTIVE INVEST 🟢"
-    if score >= 50:
-        return "HOLD / SIP 🟡"
-    if score >= 40:
-        return "REDUCE NEW INVESTMENT 🟠"
-    return "WAIT / DEFENSIVE 🔴"
+
+    if score >= 90:
+        return "🚀 MUST BUY"
+
+    elif score >= 80:
+        return "🟢 AGGRESSIVE LONG-TERM BUYING ZONE"
+
+    elif score >= 70:
+        return "🟢 AGGRESSIVE BUY"
+
+    elif score >= 60:
+        return "🟢 BUY ON DIPS"
+
+    elif score >= 50:
+        return "🟡 SIP ONLY"
+
+    elif score >= 35:
+        return "🟠 AVOID LARGE LUMPSUM"
+
+    else:
+        return "🔴 EXPENSIVE"
 
 
 def get_allocation(overall, large, mid, small):
@@ -627,11 +721,45 @@ if __name__ == "__main__":
         )
 
         # Final Scores & Status
-        overall_score = final_market_score(overall_technical, valuation_score_value, vix_score_value)
+      overall_score = round(
+    large_score * 0.50 +
+    mid_score * 0.30 +
+    small_score * 0.20,
+    1
+)
 
-        large_score = round(large_technical * 0.70 + valuation_score_value * 0.20 + vix_score_value * 0.10, 1)
-        mid_score = round(mid_technical * 0.70 + valuation_score_value * 0.20 + vix_score_value * 0.10, 1)
-        small_score = round(small_technical * 0.70 + valuation_score_value * 0.20 + vix_score_value * 0.10, 1)
+large_score = god_score(
+    nifty100["close"],
+    nifty100["dma50"],
+    nifty100["dma200"],
+    nifty100["weekly_rsi"],
+    nifty100["monthly_rsi"],
+    nifty100["drawdown"],
+    india_vix,
+    large_breadth["pct200"]
+)
+
+mid_score = god_score(
+    midcap150["close"],
+    midcap150["dma50"],
+    midcap150["dma200"],
+    midcap150["weekly_rsi"],
+    midcap150["monthly_rsi"],
+    midcap150["drawdown"],
+    india_vix,
+    mid_breadth["pct200"]
+)
+
+small_score = god_score(
+    smallcap250["close"],
+    smallcap250["dma50"],
+    smallcap250["dma200"],
+    smallcap250["weekly_rsi"],
+    smallcap250["monthly_rsi"],
+    smallcap250["drawdown"],
+    india_vix,
+    small_breadth["pct200"]
+)
 
         overall_status = score_status(overall_score)
         large_status = score_status(large_score)
