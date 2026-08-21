@@ -572,6 +572,28 @@ def score_status(score):
         return "WEAK 🟠"
     return "VERY WEAK 🔴"
 
+def valuation_label(score):
+
+    if score >= 85:
+        return "🔥 GENERATIONAL BUY"
+
+    elif score >= 75:
+        return "🚀 AGGRESSIVE BUY"
+
+    elif score >= 65:
+        return "🟢 MUST BUY"
+
+    elif score >= 55:
+        return "🟡 ACCUMULATE"
+
+    elif score >= 45:
+        return "⚠️ FAIR VALUE"
+
+    elif score >= 35:
+        return "🟠 EXPENSIVE"
+
+    else:
+        return "🔴 VERY EXPENSIVE"
 
 def get_action(score):
 
@@ -720,6 +742,24 @@ if __name__ == "__main__":
             large_technical * 0.40 + mid_technical * 0.30 + small_technical * 0.20 + nifty500_technical * 0.10, 1
         )
 
+large_score = calculate_god_score(
+    nifty100,
+    large_breadth["pct200"],
+    india_vix
+)
+
+mid_score = calculate_god_score(
+    midcap150,
+    mid_breadth["pct200"],
+    india_vix
+)
+
+small_score = calculate_god_score(
+    smallcap250,
+    small_breadth["pct200"],
+    india_vix
+)
+    
         # Final Scores & Status
       overall_score = round(
     large_score * 0.50 +
@@ -763,7 +803,7 @@ small_score = god_score(
 
         overall_status = score_status(overall_score)
         large_status = score_status(large_score)
-        mid_status = score_status(mid_score)
+        mid_status = score_status(mid_score)    
         small_status = score_status(small_score)
 
         overall_action = get_action(overall_score)
@@ -810,63 +850,47 @@ VIX SCORE: {vix_score_value}/100
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🟢 LARGE CAP : NIFTY 100
-
+LARGE CAP : NIFTY 100
+🎯 SCORE: {large_score}/100
+Valuation: {valuation_label(large_score)}
 Price: {nifty100['close']}
-Daily Change: {nifty100['change']}%
 50 DMA: {nifty100['dma50']}
 200 DMA: {nifty100['dma200']}
-Price vs 50 DMA: {nifty100['vs50']}%
-Price vs 200 DMA: {nifty100['vs200']}%
-Monthly RSI: {nifty100['monthly_rsi']}
-Trend: {nifty100['trend']}
-Breadth >50 DMA: {large_breadth['pct50']}%
-Breadth >200 DMA: {large_breadth['pct200']}%
-Stocks Analyzed: {large_breadth['total']}
 
-🎯 LARGE CAP SCORE: {large_score}/100
-{large_status}
-ACTION: {large_action}
+DMA Trend: {'🟢 50DMA > 200DMA' if nifty100['dma50'] > nifty100['dma200'] else '🔴 50DMA < 200DMA'}
+
+Weekly RSI: {nifty100['weekly_rsi']}
+Monthly RSI: {nifty100['monthly_rsi']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🟡 MID CAP : NIFTY MIDCAP 150
-
+ MID CAP : NIFTY MIDCAP 150
+🎯 SCORE: {mid_score}/100
+Valuation: {valuation_label(mid_score)}
 Price: {midcap150['close']}
-Daily Change: {midcap150['change']}%
 50 DMA: {midcap150['dma50']}
 200 DMA: {midcap150['dma200']}
-Price vs 50 DMA: {midcap150['vs50']}%
-Price vs 200 DMA: {midcap150['vs200']}%
-Monthly RSI: {midcap150['monthly_rsi']}
-Trend: {midcap150['trend']}
-Breadth >50 DMA: {mid_breadth['pct50']}%
-Breadth >200 DMA: {mid_breadth['pct200']}%
-Stocks Analyzed: {mid_breadth['total']}
 
-🎯 MID CAP SCORE: {mid_score}/100
-{mid_status}
-ACTION: {mid_action}
+DMA Trend:
+{'🟢 50DMA > 200DMA' if midcap150['dma50'] > midcap150['dma200'] else '🔴 50DMA < 200DMA'}
+
+Weekly RSI: {midcap150['weekly_rsi']}
+Monthly RSI: {midcap150['monthly_rsi']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔴 SMALL CAP : NIFTY SMALLCAP 250
-
+SMALL CAP: NIFTY SMALLCAP 250
+🎯 SCORE: {small_score}/100
+Valuation: {valuation_label(small_score)}
 Price: {smallcap250['close']}
-Daily Change: {smallcap250['change']}%
 50 DMA: {smallcap250['dma50']}
 200 DMA: {smallcap250['dma200']}
-Price vs 50 DMA: {smallcap250['vs50']}%
-Price vs 200 DMA: {smallcap250['vs200']}%
-Monthly RSI: {smallcap250['monthly_rsi']}
-Trend: {smallcap250['trend']}
-Breadth >50 DMA: {small_breadth['pct50']}%
-Breadth >200 DMA: {small_breadth['pct200']}%
-Stocks Analyzed: {small_breadth['total']}
 
-🎯 SMALL CAP SCORE: {small_score}/100
-{small_status}
-ACTION: {small_action}
+DMA Trend:
+{'🟢 50DMA > 200DMA' if smallcap250['dma50'] > smallcap250['dma200'] else '🔴 50DMA < 200DMA'}
+
+Weekly RSI: {smallcap250['weekly_rsi']}
+Monthly RSI: {smallcap250['monthly_rsi']}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
