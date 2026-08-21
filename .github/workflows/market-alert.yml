@@ -1,31 +1,71 @@
-name: Daily AI Wealth Manager Telegram Alert
+name: AI Wealth Manager Automation
 
 on:
   schedule:
-    # Runs Monday to Friday at 03:30 UTC (9:00 AM IST)
-    - cron: '30 3 * * 1-5'
+    # Daily Automatic Schedule (Mon-Fri 4:00 PM IST / 10:30 AM UTC)
+    - cron: '30 10 * * 1-5'
+  
+  # MANUAL TESTING & BACK-TESTING TRIGGER
   workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Dry Run Only? (True = Console output only, No Telegram message)'
+        type: boolean
+        required: false
+        default: true
+      back_date:
+        description: 'Back-date Test (YYYY-MM-DD, e.g., 2025-06-15). Leave blank for live run.'
+        type: string
+        required: false
+        default: ''
 
 jobs:
-  run-script:
+  run-market-check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Setup Python Environment
+      - name: Set up Python Environment
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.10'
 
-      - name: Upgrade PIP & Install Dependencies
+      - name: Install Required Python Libraries
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade yfinance requests pandas numpy
+          pip install requests numpy pandas yfinance
 
-      - name: Run Market Check Script
+      - name: Execute Market Check Script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/market_check.py
+        run: |
+          # Verify file exists before running to avoid Path Error
+          if [ ! -f "market_check.py" ]; then
+            echo "Searching for market_check.py in repository..."
+            SCRIPT_PATH=$(find . -maxdepth 2 -name "market_check.py" | head -n 1)
+          else
+            SCRIPT_PATH="market_check.py"
+          fi
+
+          if [ -z "$SCRIPT_PATH" ]; then
+            echo "ERROR: market_check.py file not found in repository root!"
+            exit 1
+          fi
+
+          # Build command dynamically based on inputs
+          CMD="python $SCRIPT_PATH"
+
+          if [ "${{ github.event.inputs.test_mode }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" -a "${{ github.event.inputs.test_mode }}" = "" ]; then
+            if [ "${{ github.event.inputs.test_mode }}" != "false" ]; then
+              CMD="$CMD --test"
+            fi
+          fi
+
+          if [ -n "${{ github.event.inputs.back_date }}" ]; then
+            CMD="$CMD --date ${{ github.event.inputs.back_date }}"
+          fi
+
+          echo "Executing: $CMD"
+          $CMD
