@@ -68,7 +68,7 @@ def send_telegram(message):
 def get_index_data(symbol):
 
 weekly = yf.Ticker(symbol).history(
-    period="5y",
+    period="1y",
     interval="1wk",
     auto_adjust=False
 )
