@@ -204,8 +204,8 @@ def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, 
         return {
             "stage": "🔥 Extreme High (Stg 1)",
             "sip_status": "Stop This Month 🔴",
-            "lumpsum_pct": "Pause SIP & Lumpsum (Prepay Loan) 🔴",
-            "short_action": "Pause SIP (Prepay Loan) 🏦"
+            "lumpsum_pct": "Book Small Profit 💰 & Prepay Loan 🏦",
+            "short_action": "Book Profit 💰 -> Prepay Loan 🏦"
         }
     elif drawdown_52w >= 25.0 or weekly_rsi < 30:
         return {
@@ -293,17 +293,17 @@ if __name__ == "__main__":
 
         message = f"""📊 AI WEALTH MANAGER
 {pe_data['date']}
-──────────────────────────
+────────────────────
 🌡️ MARKET METRICS
 • Score: {overall_score}/100 ({score_status(overall_score)})
 • Nifty PE: {pe_data['large_pe']:.2f} | VIX: {india_vix:.2f}
 • Nifty 50: {nifty50['close']} ({nifty50['change']}%)
 • Monthly RSI: {nifty50['monthly_rsi']}
 
-──────────────────────────
+────────────────────
 🏛️ CATEGORY MATRIX
 
-🏛️ LARGE CAP
+📊 LARGE CAP
 • Stage: {large_stage['stage']}
 • SIP Status: {large_stage['sip_status']}
 • Action: {large_stage['lumpsum_pct']}
@@ -312,7 +312,7 @@ if __name__ == "__main__":
 • Weekly RSI: {nifty100['weekly_rsi']:.2f} / Monthly RSI: {nifty100['monthly_rsi']:.2f}
 • DMA Trend: {nifty100['trend']}
 
-📈 MID CAP
+📊 MID CAP
 • Stage: {mid_stage['stage']}
 • SIP Status: {mid_stage['sip_status']}
 • Action: {mid_stage['lumpsum_pct']}
@@ -321,7 +321,7 @@ if __name__ == "__main__":
 • Weekly RSI: {midcap150['weekly_rsi']:.2f} / Monthly RSI: {midcap150['monthly_rsi']:.2f}
 • DMA Trend: {midcap150['trend']}
 
-🚀 SMALL CAP
+📊 SMALL CAP
 • Stage: {small_stage['stage']}
 • SIP Status: {small_stage['sip_status']}
 • Action: {small_stage['lumpsum_pct']}
@@ -330,17 +330,17 @@ if __name__ == "__main__":
 • Weekly RSI: {smallcap250['weekly_rsi']:.2f} / Monthly RSI: {smallcap250['monthly_rsi']:.2f}
 • DMA Trend: {smallcap250['trend']}
 
-──────────────────────────
+────────────────────
 💡 SUMMARY ACTION
 • Large: {large_stage['short_action']}
 • Mid: {mid_stage['short_action']}
 • Small: {small_stage['short_action']}
 
-──────────────────────────
+────────────────────
 📖 8-STAGE QUICK GUIDE
 
 1. 🔥 Extreme High (All-Time Peak)
-   └ 🔴 Stop SIP | Prepay Loan / Save Cash
+   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan
 2. 🚀 Bull Run (High Zone)
    └ 🔴 Normal SIP | Prepay Loan
 3. 🟢 Normal Market (Fair Price)
@@ -353,10 +353,10 @@ if __name__ == "__main__":
    └ 🟢 SIP + 50% Extra
 7. 📉 Heavy Discount (15%+ - Mega Buy)
    └ 🟢 SIP + 75% Extra
-8. 🛑 Market Crash (25%+ - JackPot Buy)
+8. 💎 Market Crash (25%+ - JackPot Buy)
    └ 🚀 SIP + Max Lumpsum Buy
 
-──────────────────────────
+────────────────────
 🔍 TECHNICAL TERMS HELP
 
 • RSI (<30 Cheap | >70 High)
