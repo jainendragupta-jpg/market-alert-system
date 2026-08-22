@@ -1,293 +1,228 @@
 import os
-import re
-import argparse
 import requests
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from bs4 import BeautifulSoup
 from datetime import datetime
 
-# ============================================================
-# CONFIGURATION & TELEGRAM MESSAGING
-# ============================================================
+# ==========================================
+# CONFIGURATION & CONSTANTS
+# ==========================================
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
+CATEGORIES = {
+    "LARGE CAP": "^NSEI",          # Nifty 50
+    "MID CAP": "^NSEMDCP50",       # Nifty Midcap 50
+    "SMALL CAP": "^CNXSMALL30"     # Nifty Smallcap 50
+}
 
-def send_telegram(message: str, is_test_mode: bool = False) -> None:
-    """Sends formatted plain-text alert to Telegram with fail-safe error handling."""
-    if is_test_mode:
-        print("\n=== [TEST MODE OUTPUT: TELEGRAM SKIPPED] ===")
-        print(message)
-        print("===========================================\n")
-        return
+SCREENER_URLS = {
+    "LARGE CAP": "https://www.screener.in/company/NIFTY/",
+    "MID CAP": "https://www.screener.in/company/NIFTYMIDCAP50/",
+    "SMALL CAP": "https://www.screener.in/company/NIFTYSMALLCAP50/"
+}
 
-    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN" or not TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
-        print("Telegram configuration missing. Displaying output in console:\n")
-        print(message)
-        return
-
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
-    }
+# ==========================================
+# HELPER FUNCTIONS: DATA FETCHING
+# ==========================================
+def fetch_screener_pe(category):
+    """Fetches Live PE Ratio from Screener.in with fallback handling"""
+    url = SCREENER_URLS.get(category)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     try:
-        response = requests.post(url, json=payload, timeout=15)
-        response.raise_for_status()
-        print("Telegram notification delivered successfully!")
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            top_ratios = soup.find('ul', id='top-ratios')
+            if top_ratios:
+                for li in top_ratios.find_all('li'):
+                    name = li.find('span', class_='name')
+                    if name and 'Stock P/E' in name.text:
+                        val = li.find('span', class_='number').text.replace(',', '').strip()
+                        return float(val)
     except Exception as e:
-        print(f"Error sending Telegram notification: {e}")
+        print(f"Screener PE fetch failed for {category}: {e}")
+    
+    # Fallback default values
+    fallback_pe = {"LARGE CAP": 21.5, "MID CAP": 28.0, "SMALL CAP": 25.0}
+    return fallback_pe.get(category, 22.0)
 
-# ============================================================
-# SAFE MARKET & INDEX DATA FETCHING ENGINE
-# ============================================================
+def calculate_rsi(series, period=14):
+    """Calculates Relative Strength Index (RSI)"""
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
-def get_index_data(ticker_symbol: str, target_date: str = None) -> dict:
-    """Fetches historical price data, DMA trends, RSI, and Drawdowns."""
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        df = ticker.history(period="2y")
-        
-        if df.empty or len(df) < 50:
-            raise ValueError(f"Insufficient historical price data for {ticker_symbol}")
+def get_market_data(ticker_symbol):
+    """Fetches stock data and calculates RSI, DMAs, and Drawdown"""
+    df = yf.download(ticker_symbol, period="2y", interval="1d", progress=False)
+    if df.empty:
+        raise ValueError(f"No data returned for ticker {ticker_symbol}")
+    
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
-        if target_date:
-            df = df.loc[:target_date]
-            if df.empty:
-                raise ValueError(f"No data available up to target date: {target_date}")
+    close = df['Close']
+    current_price = float(close.iloc[-1])
+    prev_close = float(close.iloc[-2])
+    p_change = ((current_price - prev_close) / prev_close) * 100
 
-        close_series = df['Close'].dropna()
-        
-        latest_close = float(close_series.iloc[-1])
-        prev_close = float(close_series.iloc[-2]) if len(close_series) > 1 else latest_close
-        
-        daily_change = round(((latest_close - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
+    high_52w = float(close.rolling(window=252, min_periods=1).max().iloc[-1])
+    drawdown = ((current_price - high_52w) / high_52w) * 100
 
-        dma50 = float(close_series.rolling(window=min(50, len(close_series))).mean().iloc[-1])
-        dma200 = float(close_series.rolling(window=min(200, len(close_series))).mean().iloc[-1])
+    # Indicators
+    daily_rsi = calculate_rsi(close, 14)
+    weekly_close = close.resample('W').last()
+    weekly_rsi = calculate_rsi(weekly_close, 14)
+    monthly_close = close.resample('ME').last()
+    monthly_rsi = calculate_rsi(monthly_close, 14)
 
-        high_52w = float(df['High'].iloc[-252:].max()) if len(df) >= 252 else float(df['High'].max())
-        drawdown = round(((high_52w - latest_close) / high_52w) * 100, 2) if high_52w > 0 else 0.0
+    cur_w_rsi = float(weekly_rsi.iloc[-1]) if not weekly_rsi.empty else 50.0
+    cur_m_rsi = float(monthly_rsi.iloc[-1]) if not monthly_rsi.empty else 50.0
 
-        weekly_df = close_series.resample('W').last().dropna()
-        try:
-            monthly_df = close_series.resample('ME').last().dropna()
-        except Exception:
-            monthly_df = close_series.resample('M').last().dropna()
+    dma_50 = float(close.rolling(window=50).mean().iloc[-1])
+    dma_200 = float(close.rolling(window=200).mean().iloc[-1])
 
-        def compute_rsi(series: pd.Series, period: int = 14) -> float:
-            if len(series) < period:
-                return 50.0
-            delta = series.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-            rs = gain / loss.replace(0, np.nan)
-            rsi_series = 100 - (100 / (1 + rs))
-            valid_rsi = rsi_series.dropna()
-            return float(valid_rsi.iloc[-1]) if not valid_rsi.empty else 50.0
-
-        weekly_rsi = round(compute_rsi(weekly_df), 2)
-        monthly_rsi = round(compute_rsi(monthly_df), 2)
-
-        trend_status = "BEARISH_DISCOUNT" if close_series.iloc[-1] < dma50 else "BULLISH_STRENGTH"
-
-        return {
-            "close": round(latest_close, 2),
-            "change": daily_change,
-            "dma50": round(dma50, 2),
-            "dma200": round(dma200, 2),
-            "drawdown": drawdown,
-            "weekly_rsi": weekly_rsi,
-            "monthly_rsi": monthly_rsi,
-            "trend_status": trend_status,
-            "is_below_200dma": latest_close < dma200
-        }
-    except Exception as e:
-        print(f"Warning: Fallback applied for {ticker_symbol} due to: {e}")
-        return {
-            "close": 0.0, "change": 0.0, "dma50": 0.0, "dma200": 0.0,
-            "drawdown": 0.0, "weekly_rsi": 50.0, "monthly_rsi": 50.0,
-            "trend_status": "NEUTRAL", "is_below_200dma": False
-        }
-
-def get_screener_index_pe(index_slug: str, fallback_pe: float) -> float:
-    url = f"https://www.screener.in/company/{index_slug}/"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    }
-    try:
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code == 200:
-            match = re.search(r'Stock P/E.*?>\s*([\d\.]+)\s*<', res.text, re.DOTALL | re.IGNORECASE)
-            if match:
-                return float(match.group(1))
-    except Exception as e:
-        print(f"Failed fetching Screener PE for {index_slug}, fallback used: {e}")
-    return fallback_pe
-
-def get_category_pe_ratios(override_date: str = None) -> dict:
-    today_str = override_date if override_date else datetime.now().strftime("%d-%b-%Y")
     return {
-        "large_pe": get_screener_index_pe("Nifty+100", 20.3),
-        "mid_pe": get_screener_index_pe("Nifty+Midcap+150", 29.5),
-        "small_pe": get_screener_index_pe("Nifty+Smallcap+250", 27.8),
-        "date": today_str
+        'price': current_price,
+        'p_change': p_change,
+        'drawdown': drawdown,
+        'weekly_rsi': cur_w_rsi,
+        'monthly_rsi': cur_m_rsi,
+        'dma_50': dma_50,
+        'dma_200': dma_200
     }
 
-def get_india_vix() -> float:
-    try:
-        vix = yf.Ticker("^INDIAVIX")
-        df = vix.history(period="5d")
-        if not df.empty:
-            return round(float(df['Close'].iloc[-1]), 2)
-    except Exception:
-        pass
-    return 15.0
+# ==========================================
+# MULTI-FACTOR STAGE DECISION ENGINE
+# ==========================================
+def evaluate_stage(category, data, pe_ratio):
+    dd = abs(data['drawdown'])
+    w_rsi = data['weekly_rsi']
+    m_rsi = data['monthly_rsi']
+    
+    # PE Thresholds
+    pe_high = {"LARGE CAP": 24, "MID CAP": 32, "SMALL CAP": 28}[category]
+    pe_cheap = {"LARGE CAP": 18, "MID CAP": 24, "SMALL CAP": 20}[category]
 
-# ============================================================
-# INSTITUTIONAL MULTI-FACTOR STAGE DECISION MATRIX
-# ============================================================
-
-def get_category_stage(drawdown_52w: float, weekly_rsi: float, pe_ratio: float, vix: float, is_below_200dma: bool) -> dict:
-    """
-    Evaluates 8 Stages using Strict Multi-Factor Confluence:
-    Primary Anchor: Drawdown
-    Secondary Modifiers: RSI, PE, VIX, 200 DMA Position
-    """
-    # STAGE 8: Panic Market Crash (30%+ Drop OR 25%+ Drop with Extreme Fear/Crash RSI)
-    if drawdown_52w >= 30.0 or (drawdown_52w >= 25.0 and weekly_rsi < 28.0 and vix > 25.0):
-        return {
-            "stage_num": 8,
-            "stage": "🛑 Market Crash (Stg 8)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "SIP + Max Lumpsum Buy 🚀",
-            "short_action": "SIP + Max Lumpsum Buy 🚀"
-        }
-    
-    # STAGE 7: Heavy Discount (22%+ Drop AND (RSI < 32 OR Deep Value PE OR Below 200DMA))
-    elif drawdown_52w >= 22.0 and (weekly_rsi < 35.0 or pe_ratio < 18.0 or is_below_200dma):
-        return {
-            "stage_num": 7,
-            "stage": "📉 Heavy Discount (Stg 7)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "SIP + 75% Extra Lumpsum 🟢",
-            "short_action": "SIP + 75% Extra Lumpsum 🟢"
-        }
-    
-    # STAGE 6: Big Discount (15%+ Drop AND (RSI < 40 OR VIX > 22))
-    elif drawdown_52w >= 15.0 and (weekly_rsi < 42.0 or vix > 20.0):
-        return {
-            "stage_num": 6,
-            "stage": "⚠️ Big Discount (Stg 6)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "SIP + 50% Extra Lumpsum 🟢",
-            "short_action": "SIP + 50% Extra Lumpsum 🟢"
-        }
-    
-    # STAGE 5: Good Discount (10%+ Drop AND (RSI < 45 OR Reasonable PE))
-    elif drawdown_52w >= 10.0 and (weekly_rsi < 48.0 or pe_ratio < 22.0):
-        return {
-            "stage_num": 5,
-            "stage": "🟡 Good Discount (Stg 5)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "SIP + 25% Extra Lumpsum 🟢",
-            "short_action": "SIP + 25% Extra Lumpsum 🟢"
-        }
-    
-    # STAGE 4: Small Discount (6.0% to 9.99% Drop) -> NO LUMPSUM, PREPAY LOAN
-    elif 6.0 <= drawdown_52w < 10.0:
-        return {
-            "stage_num": 4,
-            "stage": "📊 Small Discount (Stg 4)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "Normal SIP Only (0% Lumpsum - Prepay Loan 🏦)",
-            "short_action": "Normal SIP Only (Prepay Loan) 🏦"
-        }
-    
-    # STAGE 1: Peak Market Overbought (Near Peak AND High RSI)
-    elif drawdown_52w < 1.5 and weekly_rsi >= 70.0:
-        return {
-            "stage_num": 1,
-            "stage": "🔥 Extreme High (Stg 1)",
-            "sip_status": "Stop This Month 🔴",
-            "lumpsum_pct": "Book Small Profit 💰 & Prepay Loan 🏦",
-            "short_action": "Book Profit 💰 -> Prepay Loan 🏦"
-        }
-    
-    # STAGE 2: Strong Bull Trend (Low Drop < 3.0% AND Strong RSI)
-    elif drawdown_52w < 3.0 and weekly_rsi >= 60.0:
-        return {
-            "stage_num": 2,
-            "stage": "🚀 Bull Run (Stg 2)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "Normal SIP Only (Prepay Loan 🏦)",
-            "short_action": "Normal SIP Only (Prepay Loan) 🏦"
-        }
-    
-    # STAGE 3: Normal Market (Safety Catch-All Block)
+    # STAGE EVALUATION (Drawdown as Primary Anchor)
+    if dd >= 25 or (dd >= 20 and w_rsi < 30):
+        return 8, "🛑 Market Crash (Stg 8)", "Jackpot Lumpsum Buy 🚀", "SIP + 100% Max Lumpsum"
+    elif dd >= 15 or (dd >= 12 and w_rsi < 35):
+        return 7, "📉 Heavy Discount (Stg 7)", "Mega Buy Opportunity 🟢", "SIP + 75% Extra Lumpsum 🟢"
+    elif dd >= 10 or (dd >= 8 and pe_ratio < pe_cheap):
+        return 6, "⚠️ Big Discount (Stg 6)", "Big Buy Opportunity 🟢", "SIP + 50% Extra Lumpsum 🟢"
+    elif dd >= 5 or (dd >= 4 and w_rsi < 45):
+        return 5, "🟡 Good Discount (Stg 5)", "Active 🟢", "SIP + 25% Extra Lumpsum 🟢"
+    elif dd >= 2.5:
+        return 4, "📊 Small Discount (Stg 4)", "Active 🟢", "SIP + 10% Extra Lumpsum 🟢"
+    elif (w_rsi > 70 and pe_ratio > pe_high) or m_rsi > 70:
+        return 1, "🔥 Extreme High (Stg 1)", "Stop This Month 🔴", "Book Small Profit 💰 & Prepay Loan 🏦"
+    elif w_rsi > 60:
+        return 2, "🚀 Bull Run (Stg 2)", "Normal SIP 🟢", "Normal SIP + Prepay Loan 🏦"
     else:
-        return {
-            "stage_num": 3,
-            "stage": "🟢 Normal Market (Stg 3)",
-            "sip_status": "Active 🟢",
-            "lumpsum_pct": "Normal SIP Only (0% Lumpsum) 🟡",
-            "short_action": "Normal SIP Only 🟡"
-        }
+        return 3, "🟢 Normal Market (Stg 3)", "Active 🟢", "Normal SIP Only (0% Lumpsum)"
 
-# ============================================================
-# MAIN EXECUTION CONTROLLER
-# ============================================================
+# ==========================================
+# MAIN EXECUTION & MESSAGE FORMATTER
+# ==========================================
+def generate_and_send_alert():
+    # 1. Market Overview Data
+    nifty = get_market_data("^NSEI")
+    vix = yf.download("^INDIAVIX", period="5d", progress=False)['Close'].iloc[-1]
+    vix_val = float(vix.iloc[-1]) if isinstance(vix, pd.Series) else float(vix)
+    nifty_pe = fetch_screener_pe("LARGE CAP")
+
+    # Overall Market Health Score Calculation
+    score = 100 - (nifty['monthly_rsi'] * 0.5 + (nifty_pe / 35.0) * 30 + (abs(nifty['drawdown']) * 0.5))
+    score = max(0, min(100, score))
+    health_status = "Neutral 🟡" if 40 <= score <= 60 else ("Bullish 🔴" if score < 40 else "Discount Zone 🟢")
+
+    date_str = datetime.now().strftime("%d-%b-%Y")
+
+    # Header
+    msg = f"🚨 ACTION ALERT: AI WEALTH MANAGER\n"
+    msg += f"{date_str}\n"
+    msg += f"──────────────────────\n"
+    msg += f"🌡️ MARKET METRICS\n"
+    msg += f"• Score: {score:.1f}/100 ({health_status})\n"
+    msg += f"• Nifty PE (Exact): {nifty_pe:.2f} | VIX: {vix_val:.2f}\n"
+    msg += f"• Nifty 50: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
+    msg += f"• Monthly RSI: {nifty['monthly_rsi']:.2f}\n"
+    msg += f"──────────────────────\n"
+    msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
+
+    summary_actions = []
+
+    for cat_name, ticker in CATEGORIES.items():
+        data = get_market_data(ticker)
+        pe = fetch_screener_pe(cat_name)
+        stage_num, stage_title, sip_status, action_text = evaluate_stage(cat_name, data, pe)
+
+        # Skip Stage 2 and 3 to avoid spamming
+        if stage_num in [2, 3]:
+            continue
+
+        pe_remark = "Fair Price" if stage_num == 3 else ("Growth Zone" if stage_num in [1, 2] else "Discount Zone")
+        dma_status = "🟢 50 DMA < 200 DMA (Discount Opportunity)" if data['dma_50'] < data['dma_200'] else "🔴 50 DMA > 200 DMA"
+
+        category_icon = "🏛️" if cat_name == "LARGE CAP" else ("📈" if cat_name == "MID CAP" else "🚀")
+
+        msg += f"{category_icon} {cat_name}\n"
+        msg += f"• Stage: {stage_title}\n"
+        msg += f"• SIP Status: {sip_status}\n"
+        msg += f"• Action: {action_text}\n"
+        msg += f"• Index PE: {pe:.2f} ({pe_remark})\n"
+        msg += f"• Price: {data['price']:.2f} ({data['p_change']:+.2f}%)\n"
+        msg += f"• Weekly RSI: {data['weekly_rsi']:.2f} | Monthly RSI: {data['monthly_rsi']:.2f}\n"
+        msg += f"• DMA Trend: {dma_status}\n\n"
+
+        short_cat = cat_name.split()[0].capitalize()
+        summary_actions.append(f"• {short_cat}: {action_text}")
+
+    if not summary_actions:
+        msg += "🟢 ALL CATEGORIES ARE IN NORMAL ZONE (STAGE 2/3). NO SPECIAL LUMPSUM/PROFIT BOOKING NEEDED.\n\n"
+
+    msg += f"──────────────────────\n"
+    msg += f"💡 SUMMARY ACTION\n"
+    for sum_act in summary_actions:
+        msg += f"{sum_act}\n"
+
+    msg += f"\n──────────────────────\n"
+    msg += f"📖 8-STAGE QUICK GUIDE\n\n"
+    msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan\n"
+    msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
+    msg += f"3. 🟢 Normal Market (Fair Price)\n   └ 🟡 Normal SIP Only (0% Lumpsum)\n"
+    msg += f"4. 📊 Small Discount (2-3% Dip)\n   └ 🟢 SIP + 10% Extra\n"
+    msg += f"5. 🟡 Good Discount (5% Dip)\n   └ 🟢 SIP + 25% Extra\n"
+    msg += f"6. ⚠️ Big Discount (10% Drop - Buy)\n   └ 🟢 SIP + 50% Extra\n"
+    msg += f"7. 📉 Heavy Discount (15%+ - Mega Buy)\n   └ 🟢 SIP + 75% Extra\n"
+    msg += f"8. 🛑 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
+
+    msg += f"\n──────────────────────\n"
+    msg += f"📌 IMPORTANT NOTES & RULES\n\n"
+    msg += f"• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.\n"
+    msg += f"• RSI (<30 Cheap | >70 High)\n"
+    msg += f"• DMA (50<200 Discount 🟢 | 50>200 High 🔴)\n"
+    msg += f"• Drawdown (% Drop from 52W High)\n\n"
+    msg += f"📊 PE RATIO GUIDE:\n"
+    msg += f"• Large Cap: <18 Cheap | >24 High\n"
+    msg += f"• Mid Cap:   <24 Cheap | >32 High\n"
+    msg += f"• Small Cap: <20 Cheap | >28 High\n"
+
+    # Send to Telegram
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+        res = requests.post(url, json=payload)
+        print("Telegram Response Status:", res.status_code)
+    else:
+        print("Telegram Credentials not set. Outputting message to console:\n")
+        print(msg)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Institutional Wealth Manager")
-    parser.add_argument("--date", type=str, default=None, help="Back-date test YYYY-MM-DD")
-    parser.add_argument("--test", action="store_true", help="Dry run mode")
-    args = parser.parse_args()
-
-    is_test_mode = args.test or (args.date is not None)
-    target_date = args.date
-
-    try:
-        nifty50 = get_index_data("^NSEI", target_date)
-        nifty100 = get_index_data("^CNX100", target_date)
-        midcap150 = get_index_data("NIFTYMIDCAP150.NS", target_date)
-        smallcap250 = get_index_data("NIFTYSMLCAP250.NS", target_date)
-
-        pe_data = get_category_pe_ratios(target_date)
-        vix_val = get_india_vix()
-
-        large_stage = get_category_stage(nifty100["drawdown"], nifty100["weekly_rsi"], pe_data["large_pe"], vix_val, nifty100["is_below_200dma"])
-        mid_stage = get_category_stage(midcap150["drawdown"], midcap150["weekly_rsi"], pe_data["mid_pe"], vix_val, midcap150["is_below_200dma"])
-        small_stage = get_category_stage(smallcap250["drawdown"], smallcap250["weekly_rsi"], pe_data["small_pe"], vix_val, smallcap250["is_below_200dma"])
-
-        # Alert triggers ON ONLY for Stage 1 (Peak) and Stages 5, 6, 7, 8 (Discounts)
-        target_alert_stages = [1, 5, 6, 7, 8]
-
-        large_alert = large_stage["stage_num"] in target_alert_stages
-        mid_alert = mid_stage["stage_num"] in target_alert_stages
-        small_alert = small_stage["stage_num"] in target_alert_stages
-
-        if not (large_alert or mid_alert or small_alert) and not is_test_mode:
-            print("Market is in Stage 2, 3, or 4. Automation execution finished silently.")
-        else:
-            msg = [
-                "🚨 ACTION ALERT: INSTITUTIONAL WEALTH ENGINE",
-                f"Date: {pe_data['date']}",
-                "──────────────────────────",
-                f"• Nifty 50: {nifty50['close']} ({nifty50['change']}%)",
-                f"• India VIX: {vix_val} | Nifty PE: {pe_data['large_pe']:.2f}",
-                "──────────────────────────\n"
-            ]
-
-            if large_alert or is_test_mode:
-                msg.append(f"🏛️ LARGE CAP: {large_stage['stage']}\n Action: {large_stage['lumpsum_pct']}\n Drop: -{nifty100['drawdown']}% | RSI: {nifty100['weekly_rsi']}\n")
-            if mid_alert or is_test_mode:
-                msg.append(f"📈 MID CAP: {mid_stage['stage']}\n Action: {mid_stage['lumpsum_pct']}\n Drop: -{midcap150['drawdown']}% | RSI: {midcap150['weekly_rsi']}\n")
-            if small_alert or is_test_mode:
-                msg.append(f"🚀 SMALL CAP: {small_stage['stage']}\n Action: {small_stage['lumpsum_pct']}\n Drop: -{smallcap250['drawdown']}% | RSI: {smallcap250['weekly_rsi']}\n")
-
-            send_telegram("\n".join(msg), is_test_mode)
-
-    except Exception as e:
-        print(f"Engine Execution Error: {e}")
+    generate_and_send_alert()
