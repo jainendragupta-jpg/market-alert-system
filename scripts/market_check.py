@@ -1,4 +1,5 @@
 import os
+import argparse
 import requests
 import numpy as np
 import pandas as pd
@@ -12,11 +13,11 @@ from datetime import datetime
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-# Ticker Failover Priority Lists (If Primary Fails, Secondary Executes Automatically)
+# Highly Reliable Yahoo Finance Active Tickers List (Index + Liquid ETFs)
 CATEGORIES_TICKERS = {
-    "LARGE CAP": ["^NSEI", "NIFTYBEES.NS", "SETFNIFBK.NS"],
-    "MID CAP": ["^NSEMDCP50", "NIFTY_MIDCAP_100.NS", "MID150BEES.NS"],
-    "SMALL CAP": ["NIFTY_SMALLCAP_100.NS", "^CNXSC", "SMLCASE.NS"]
+    "LARGE CAP": ["^NSEI", "NIFTYBEES.NS"],
+    "MID CAP": ["^NSEMDCP50", "MID150BEES.NS", "MIDCAP.NS"],
+    "SMALL CAP": ["HDFCSML250.NS", "NIFTY100.NS", "SBIETFQLTY.NS", "^CNX100"]
 }
 
 SCREENER_URLS = {
@@ -29,10 +30,10 @@ SCREENER_URLS = {
 # HELPER FUNCTIONS: DATA FETCHING & RESILIENCE
 # ==========================================
 def fetch_screener_pe(category):
-    """Fetches Live PE Ratio from Screener.in with robust HTML fallback parsing"""
+    """Fetches Live PE Ratio from Screener.in with HTML fallback parsing"""
     url = SCREENER_URLS.get(category)
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     try:
         response = requests.get(url, headers=headers, timeout=8)
@@ -48,7 +49,6 @@ def fetch_screener_pe(category):
     except Exception as e:
         print(f"⚠️ Screener PE fetch warning for {category}: {e}")
     
-    # Safe Fallback Benchmarks
     fallback_pe = {"LARGE CAP": 21.5, "MID CAP": 28.0, "SMALL CAP": 25.0}
     return fallback_pe.get(category, 22.0)
 
@@ -152,6 +152,10 @@ def evaluate_stage(category, data, pe_ratio):
 # MAIN EXECUTION ENGINE
 # ==========================================
 def generate_and_send_alert():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--date', type=str, help='Run date format YYYY-MM-DD')
+    args = parser.parse_args()
+
     nifty = get_market_data_with_fallback(CATEGORIES_TICKERS["LARGE CAP"])
     
     try:
@@ -167,7 +171,7 @@ def generate_and_send_alert():
     score = max(0, min(100, score))
     health_status = "Neutral 🟡" if 40 <= score <= 60 else ("Bullish 🔴" if score < 40 else "Discount Zone 🟢")
 
-    date_str = datetime.now().strftime("%d-%b-%Y")
+    date_str = args.date if args.date else datetime.now().strftime("%d-%b-%Y")
 
     msg = f"🚨 ACTION ALERT: AI WEALTH MANAGER\n"
     msg += f"{date_str}\n"
