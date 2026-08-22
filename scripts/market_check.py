@@ -7,15 +7,16 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 
 # ==========================================
-# CONFIGURATION & CONSTANTS
+# CONFIGURATION & HIGH AVAILABILITY CONSTANTS
 # ==========================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-CATEGORIES = {
-    "LARGE CAP": "^NSEI",          # Nifty 50
-    "MID CAP": "^NSEMDCP50",       # Nifty Midcap 50
-    "SMALL CAP": "^CNXSMALL30"     # Nifty Smallcap 50
+# Ticker Failover Priority Lists (If Primary Fails, Secondary Executes Automatically)
+CATEGORIES_TICKERS = {
+    "LARGE CAP": ["^NSEI", "NIFTYBEES.NS", "SETFNIFBK.NS"],
+    "MID CAP": ["^NSEMDCP50", "NIFTY_MIDCAP_100.NS", "MID150BEES.NS"],
+    "SMALL CAP": ["NIFTY_SMALLCAP_100.NS", "^CNXSC", "SMLCASE.NS"]
 }
 
 SCREENER_URLS = {
@@ -25,77 +26,99 @@ SCREENER_URLS = {
 }
 
 # ==========================================
-# HELPER FUNCTIONS: DATA FETCHING
+# HELPER FUNCTIONS: DATA FETCHING & RESILIENCE
 # ==========================================
 def fetch_screener_pe(category):
-    """Fetches Live PE Ratio from Screener.in with fallback handling"""
+    """Fetches Live PE Ratio from Screener.in with robust HTML fallback parsing"""
     url = SCREENER_URLS.get(category)
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=8)
         if response.status_code == 200:
             soup = BeautifulSoup(response.content, 'html.parser')
             top_ratios = soup.find('ul', id='top-ratios')
             if top_ratios:
                 for li in top_ratios.find_all('li'):
                     name = li.find('span', class_='name')
-                    if name and 'Stock P/E' in name.text:
+                    if name and ('Stock P/E' in name.text or 'P/E' in name.text):
                         val = li.find('span', class_='number').text.replace(',', '').strip()
                         return float(val)
     except Exception as e:
-        print(f"Screener PE fetch failed for {category}: {e}")
+        print(f"⚠️ Screener PE fetch warning for {category}: {e}")
     
-    # Fallback default values
+    # Safe Fallback Benchmarks
     fallback_pe = {"LARGE CAP": 21.5, "MID CAP": 28.0, "SMALL CAP": 25.0}
     return fallback_pe.get(category, 22.0)
 
 def calculate_rsi(series, period=14):
-    """Calculates Relative Strength Index (RSI)"""
+    """Calculates RSI with zero-division guard"""
     delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-def get_market_data(ticker_symbol):
-    """Fetches stock data and calculates RSI, DMAs, and Drawdown"""
-    df = yf.download(ticker_symbol, period="2y", interval="1d", progress=False)
-    if df.empty:
-        raise ValueError(f"No data returned for ticker {ticker_symbol}")
+    gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
     
+    loss_safe = loss.replace(0, 1e-9)
+    rs = gain / loss_safe
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def extract_safe_series(df, col_name='Close'):
+    """Extracts clean pandas Series from single/multi-index yfinance DataFrame"""
+    if df.empty:
+        return pd.Series(dtype=float)
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+        try:
+            series = df[col_name].iloc[:, 0]
+        except Exception:
+            series = df.xs(col_name, axis=1, level=0).iloc[:, 0]
+    else:
+        series = df[col_name]
+    return series.dropna()
 
-    close = df['Close']
-    current_price = float(close.iloc[-1])
-    prev_close = float(close.iloc[-2])
-    p_change = ((current_price - prev_close) / prev_close) * 100
+def get_market_data_with_fallback(ticker_list):
+    """Executes ticker failover logic for maximum uptime"""
+    for ticker_symbol in ticker_list:
+        try:
+            df = yf.download(ticker_symbol, period="2y", interval="1d", progress=False)
+            close = extract_safe_series(df, 'Close')
+            
+            if close.empty or len(close) < 50:
+                continue
 
-    high_52w = float(close.rolling(window=252, min_periods=1).max().iloc[-1])
-    drawdown = ((current_price - high_52w) / high_52w) * 100
+            current_price = float(close.iloc[-1])
+            prev_close = float(close.iloc[-2])
+            p_change = ((current_price - prev_close) / prev_close) * 100
 
-    # Indicators
-    daily_rsi = calculate_rsi(close, 14)
-    weekly_close = close.resample('W').last()
-    weekly_rsi = calculate_rsi(weekly_close, 14)
-    monthly_close = close.resample('ME').last()
-    monthly_rsi = calculate_rsi(monthly_close, 14)
+            high_52w = float(close.rolling(window=252, min_periods=1).max().iloc[-1])
+            drawdown = ((current_price - high_52w) / high_52w) * 100
 
-    cur_w_rsi = float(weekly_rsi.iloc[-1]) if not weekly_rsi.empty else 50.0
-    cur_m_rsi = float(monthly_rsi.iloc[-1]) if not monthly_rsi.empty else 50.0
+            weekly_close = close.resample('W').last().dropna()
+            weekly_rsi = calculate_rsi(weekly_close, 14)
+            
+            monthly_close = close.resample('ME').last().dropna()
+            monthly_rsi = calculate_rsi(monthly_close, 14)
 
-    dma_50 = float(close.rolling(window=50).mean().iloc[-1])
-    dma_200 = float(close.rolling(window=200).mean().iloc[-1])
+            cur_w_rsi = float(weekly_rsi.iloc[-1]) if not weekly_rsi.empty else 50.0
+            cur_m_rsi = float(monthly_rsi.iloc[-1]) if not monthly_rsi.empty else 50.0
 
-    return {
-        'price': current_price,
-        'p_change': p_change,
-        'drawdown': drawdown,
-        'weekly_rsi': cur_w_rsi,
-        'monthly_rsi': cur_m_rsi,
-        'dma_50': dma_50,
-        'dma_200': dma_200
-    }
+            dma_50 = float(close.rolling(window=50, min_periods=1).mean().iloc[-1])
+            dma_200 = float(close.rolling(window=200, min_periods=1).mean().iloc[-1])
+
+            return {
+                'price': current_price,
+                'p_change': p_change,
+                'drawdown': drawdown,
+                'weekly_rsi': cur_w_rsi,
+                'monthly_rsi': cur_m_rsi,
+                'dma_50': dma_50,
+                'dma_200': dma_200
+            }
+        except Exception as e:
+            print(f"⚠️ Primary ticker failure [{ticker_symbol}]: {e}. Trying fallback...")
+            continue
+
+    raise RuntimeError(f"❌ Critical Error: All tickers failed for candidate list: {ticker_list}")
 
 # ==========================================
 # MULTI-FACTOR STAGE DECISION ENGINE
@@ -105,11 +128,9 @@ def evaluate_stage(category, data, pe_ratio):
     w_rsi = data['weekly_rsi']
     m_rsi = data['monthly_rsi']
     
-    # PE Thresholds
     pe_high = {"LARGE CAP": 24, "MID CAP": 32, "SMALL CAP": 28}[category]
     pe_cheap = {"LARGE CAP": 18, "MID CAP": 24, "SMALL CAP": 20}[category]
 
-    # STAGE EVALUATION (Drawdown as Primary Anchor)
     if dd >= 25 or (dd >= 20 and w_rsi < 30):
         return 8, "🛑 Market Crash (Stg 8)", "Jackpot Lumpsum Buy 🚀", "SIP + 100% Max Lumpsum"
     elif dd >= 15 or (dd >= 12 and w_rsi < 35):
@@ -128,23 +149,26 @@ def evaluate_stage(category, data, pe_ratio):
         return 3, "🟢 Normal Market (Stg 3)", "Active 🟢", "Normal SIP Only (0% Lumpsum)"
 
 # ==========================================
-# MAIN EXECUTION & MESSAGE FORMATTER
+# MAIN EXECUTION ENGINE
 # ==========================================
 def generate_and_send_alert():
-    # 1. Market Overview Data
-    nifty = get_market_data("^NSEI")
-    vix = yf.download("^INDIAVIX", period="5d", progress=False)['Close'].iloc[-1]
-    vix_val = float(vix.iloc[-1]) if isinstance(vix, pd.Series) else float(vix)
+    nifty = get_market_data_with_fallback(CATEGORIES_TICKERS["LARGE CAP"])
+    
+    try:
+        vix_df = yf.download("^INDIAVIX", period="5d", progress=False)
+        vix_series = extract_safe_series(vix_df, 'Close')
+        vix_val = float(vix_series.iloc[-1]) if not vix_series.empty else 15.0
+    except Exception:
+        vix_val = 15.0
+
     nifty_pe = fetch_screener_pe("LARGE CAP")
 
-    # Overall Market Health Score Calculation
     score = 100 - (nifty['monthly_rsi'] * 0.5 + (nifty_pe / 35.0) * 30 + (abs(nifty['drawdown']) * 0.5))
     score = max(0, min(100, score))
     health_status = "Neutral 🟡" if 40 <= score <= 60 else ("Bullish 🔴" if score < 40 else "Discount Zone 🟢")
 
     date_str = datetime.now().strftime("%d-%b-%Y")
 
-    # Header
     msg = f"🚨 ACTION ALERT: AI WEALTH MANAGER\n"
     msg += f"{date_str}\n"
     msg += f"──────────────────────\n"
@@ -158,12 +182,11 @@ def generate_and_send_alert():
 
     summary_actions = []
 
-    for cat_name, ticker in CATEGORIES.items():
-        data = get_market_data(ticker)
+    for cat_name, ticker_list in CATEGORIES_TICKERS.items():
+        data = get_market_data_with_fallback(ticker_list)
         pe = fetch_screener_pe(cat_name)
         stage_num, stage_title, sip_status, action_text = evaluate_stage(cat_name, data, pe)
 
-        # Skip Stage 2 and 3 to avoid spamming
         if stage_num in [2, 3]:
             continue
 
@@ -214,11 +237,10 @@ def generate_and_send_alert():
     msg += f"• Mid Cap:   <24 Cheap | >32 High\n"
     msg += f"• Small Cap: <20 Cheap | >28 High\n"
 
-    # Send to Telegram
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
-        res = requests.post(url, json=payload)
+        res = requests.post(url, json=payload, timeout=10)
         print("Telegram Response Status:", res.status_code)
     else:
         print("Telegram Credentials not set. Outputting message to console:\n")
