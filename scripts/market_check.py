@@ -184,12 +184,12 @@ def evaluate_stage(category, data, pe_ratio):
 def generate_and_send_alert():
     parser = argparse.ArgumentParser()
     parser.add_argument('--date', type=str, help='Run date format YYYY-MM-DD')
+    parser.add_argument('--test', action='store_true', help='Test mode flag')
     args = parser.parse_args()
 
     try:
         nifty = get_market_data_with_fallback(CATEGORIES_TICKERS["LARGE CAP"])
     except Exception as e:
-        # Emergency Alert Mechanism
         emergency_msg = f"⚠️ SYSTEM ALERT: Market data download failed.\nError: {e}\nPlease check yfinance version or repository settings."
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": emergency_msg})
@@ -212,13 +212,13 @@ def generate_and_send_alert():
 
     msg = f"🚨 ACTION ALERT: AI WEALTH MANAGER\n"
     msg += f"{date_str}\n"
-    msg += f"───────────────────\n"
+    msg += f"────────────────────\n"
     msg += f"🌡️ MARKET METRICS\n"
     msg += f"• Score: {score:.1f}/100 ({health_status})\n"
     msg += f"• Nifty PE (Exact): {nifty_pe:.2f} | VIX: {vix_val:.2f}\n"
     msg += f"• Nifty 50: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
     msg += f"• Monthly RSI: {nifty['monthly_rsi']:.2f}\n"
-    msg += f"───────────────────\n"
+    msg += f"────────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
 
     summary_actions = []
@@ -253,16 +253,16 @@ def generate_and_send_alert():
 
     # Context-Only Simple News Section
     news_summary = fetch_ai_news_summary(nifty['p_change'], vix_val)
-    msg += f"──────────────────\n"
+    msg += f"────────────────────\n"
     msg += f"📰 MARKET CONTEXT & NEWS\n"
     msg += f"{news_summary}\n"
 
-    msg += f"──────────────────\n"
+    msg += f"────────────────────\n"
     msg += f"💡 SUMMARY ACTION\n"
     for sum_act in summary_actions:
         msg += f"{sum_act}\n"
 
-    msg += f"\n────────────────\n"
+    msg += f"\n──────────────────\n"
     msg += f"📖 8-STAGE QUICK GUIDE\n\n"
     msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan\n"
     msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
@@ -271,9 +271,9 @@ def generate_and_send_alert():
     msg += f"5. 🟡 Good Discount (5% Dip)\n   └ 🟢 SIP + 25% Extra\n"
     msg += f"6. ⚠️ Big Discount (10% Drop - Buy)\n   └ 🟢 SIP + 50% Extra\n"
     msg += f"7. 📉 Heavy Discount (15%+ - Mega Buy)\n   └ 🟢 SIP + 75% Extra\n"
-    msg += f"8. 💎 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
+    msg += f"8. 🛑 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
 
-    msg += f"\n─────────────────\n"
+    msg += f"\n───────────────────\n"
     msg += f"📌 IMPORTANT NOTES & RULES\n\n"
     msg += f"• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.\n"
     msg += f"• RSI (<30 Cheap | >70 High)\n"
@@ -284,7 +284,6 @@ def generate_and_send_alert():
     msg += f"• Mid Cap:   <24 Cheap | >32 High\n"
     msg += f"• Small Cap: <20 Cheap | >28 High\n"
 
-    # Append system warning if any dependency issue occurred
     if SYSTEM_WARNINGS:
         msg += f"\n⚙️ SYSTEM NOTE: Minor fallback triggered for non-critical parameters."
 
