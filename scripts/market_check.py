@@ -14,17 +14,17 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Highly Reliable Yahoo Finance Active Tickers List (Index + Liquid ETFs)
+# Resilient Multi-Tier Fallback Tickers for Direct Spot Index Matching
 CATEGORIES_TICKERS = {
-    "LARGE CAP": ["^NSEI", "NIFTYBEES.NS"],
-    "MID CAP": ["^NSEMDCP50", "MID150BEES.NS", "MIDCAP.NS"],
-    "SMALL CAP": ["HDFCSML250.NS", "NIFTY100.NS", "SBIETFQLTY.NS"]
+    "LARGE CAP": ["^NSEI", "^CNX100"],
+    "MID CAP": ["^NSEMDCP150", "^NSEMDCP50"],
+    "SMALL CAP": ["NIFTY_SMLCAP_250.NS", "^BSESMLCAP", "HDFCSML250.NS"]
 }
 
 SCREENER_URLS = {
-    "LARGE CAP": "https://www.screener.in/company/NIFTY/",
-    "MID CAP": "https://www.screener.in/company/NIFTYMIDCAP50/",
-    "SMALL CAP": "https://www.screener.in/company/NIFTYSMALLCAP50/"
+    "LARGE CAP": "https://www.screener.in/company/NIFTY100/",
+    "MID CAP": "https://www.screener.in/company/NIFTYMIDCAP150/",
+    "SMALL CAP": "https://www.screener.in/company/NIFTYSMALLCAP250/"
 }
 
 SYSTEM_WARNINGS = []
@@ -36,7 +36,7 @@ def fetch_screener_pe(category):
     """Fetches Live PE Ratio from Screener.in with HTML fallback parsing"""
     url = SCREENER_URLS.get(category)
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     try:
         response = requests.get(url, headers=headers, timeout=8)
@@ -52,11 +52,11 @@ def fetch_screener_pe(category):
     except Exception as e:
         SYSTEM_WARNINGS.append(f"Screener PE warning for {category}: {e}")
     
-    fallback_pe = {"LARGE CAP": 21.5, "MID CAP": 28.0, "SMALL CAP": 25.0}
-    return fallback_pe.get(category, 22.0)
+    fallback_pe = {"LARGE CAP": 22.5, "MID CAP": 28.0, "SMALL CAP": 25.0}
+    return fallback_pe.get(category, 23.0)
 
 def calculate_rsi(series, period=14):
-    """Calculates RSI with zero-division guard"""
+    """Calculates RSI with zero-division guard & Pandas compatibility"""
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
@@ -67,7 +67,7 @@ def calculate_rsi(series, period=14):
     return rsi
 
 def extract_safe_series(df, col_name='Close'):
-    """Extracts clean pandas Series from single/multi-index yfinance DataFrame"""
+    """Extracts clean 1D pandas Series handling single/multi-index yfinance DataFrames"""
     if df.empty:
         return pd.Series(dtype=float)
     if isinstance(df.columns, pd.MultiIndex):
@@ -80,7 +80,7 @@ def extract_safe_series(df, col_name='Close'):
     return series.dropna()
 
 def parse_input_date(date_str):
-    """Parses various date format strings into datetime object"""
+    """Parses various date format strings safely into datetime object"""
     if not date_str:
         return datetime.now()
     formats = ["%Y-%m-%d", "%d-%m-%Y", "%d-%b-%Y", "%d/%m/%Y"]
@@ -92,20 +92,18 @@ def parse_input_date(date_str):
     return datetime.now()
 
 def get_market_data_with_fallback(ticker_list, target_datetime=None):
-    """Fetches market data with historic slicing support for backtesting"""
+    """Fetches market data with historic slicing support & multi-ticker fallback protection"""
     if target_datetime is None:
         target_datetime = datetime.now()
 
     for ticker_symbol in ticker_list:
         try:
-            # Fetch 3 years data up to current/target
             df = yf.download(ticker_symbol, period="3y", interval="1d", progress=False)
             close = extract_safe_series(df, 'Close')
             
             if close.empty:
                 continue
 
-            # Slice series up to target date (handles historic testing)
             close = close[close.index <= pd.Timestamp(target_datetime)]
 
             if len(close) < 50:
@@ -121,7 +119,7 @@ def get_market_data_with_fallback(ticker_list, target_datetime=None):
             weekly_close = close.resample('W').last().dropna()
             weekly_rsi = calculate_rsi(weekly_close, 14)
             
-            monthly_close = close.resample('ME').last().dropna()
+            monthly_close = close.resample('ME' if hasattr(pd.Series, 'resample') else 'M').last().dropna()
             monthly_rsi = calculate_rsi(monthly_close, 14)
 
             cur_w_rsi = float(weekly_rsi.iloc[-1]) if not weekly_rsi.empty else 50.0
@@ -146,7 +144,7 @@ def get_market_data_with_fallback(ticker_list, target_datetime=None):
     raise RuntimeError(f"❌ Critical Error: All tickers failed for candidate list: {ticker_list}")
 
 def fetch_ai_news_summary(nifty_p_change, vix_val, is_historic=False, date_str=""):
-    """Fetches simple market context using Google Gemini API or RSS fallback"""
+    """Fetches market news context via Gemini API or fallback logic"""
     if is_historic:
         return f"• Historical Backtest Mode ({date_str}): Market metrics calculated based on historical price action."
 
@@ -161,7 +159,7 @@ def fetch_ai_news_summary(nifty_p_change, vix_val, is_historic=False, date_str="
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         prompt = (
-            f"Indian stock market Nifty moved {nifty_p_change:.2f}% today with VIX at {vix_val:.2f}. "
+            f"Indian stock market moved {nifty_p_change:.2f}% today with VIX at {vix_val:.2f}. "
             f"Provide a brief 2-line simple Hinglish explanation on why the market moved today (mention key global or domestic reasons like FII/DII, crude oil, or interest rates). Keep it crisp and easy to understand for an investor."
         )
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -213,7 +211,7 @@ def generate_and_send_alert():
     args = parser.parse_args()
 
     target_dt = parse_input_date(args.date)
-    formatted_date_str = target_dt.strftime("%d-%b-%Y") # Output format: DD-MMM-YYYY (e.g. 11-Mar-2026)
+    formatted_date_str = target_dt.strftime("%d-%b-%Y") # Format: DD-MMM-YYYY (e.g. 30-Mar-2026)
 
     is_historic = bool(args.date and target_dt.date() < datetime.now().date())
     is_test_mode = args.test or args.dry_run
@@ -241,13 +239,23 @@ def generate_and_send_alert():
     score = max(0, min(100, score))
     health_status = "Neutral 🟡" if 40 <= score <= 60 else ("Bullish 🔴" if score < 40 else "Discount Zone 🟢")
 
-    msg = f"🚨 ACTION ALERT: AI WEALTH MANAGER\n"
+    # Dynamic Header Siren Logic based on Score & Risk Severity
+    if score < 30 or vix_val > 25:
+        header_prefix = "🚨🚨 CRITICAL EMERGENCY ALERT"
+    elif score < 45 or nifty['drawdown'] < -10:
+        header_prefix = "🔴 HIGH OPPORTUNITY ALERT"
+    elif score < 55:
+        header_prefix = "🟡 DISCOUNT WATCH ALERT"
+    else:
+        header_prefix = "🟢 REGULAR MARKET REPORT"
+
+    msg = f"{header_prefix}: AI WEALTH MANAGER\n"
     msg += f"{formatted_date_str}\n"
     msg += f"──────────────────────\n"
     msg += f"🌡️ MARKET METRICS\n"
     msg += f"• Score: {score:.1f}/100 ({health_status})\n"
     msg += f"• Nifty PE (Exact): {nifty_pe:.2f} | VIX: {vix_val:.2f}\n"
-    msg += f"• Nifty 50: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
+    msg += f"• Nifty 100: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
     msg += f"• Monthly RSI: {nifty['monthly_rsi']:.2f}\n"
     msg += f"──────────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
@@ -318,7 +326,6 @@ def generate_and_send_alert():
     if SYSTEM_WARNINGS:
         msg += f"\n⚙️ SYSTEM NOTE: Minor fallback triggered for non-critical parameters."
 
-    # Dispatch Logic: Output to console in test/dry-run mode, else send Telegram
     if is_test_mode or not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
         print("\n=== [TEST/DRY-RUN MODE OUTPUT] ===")
         print(msg)
