@@ -220,7 +220,7 @@ def generate_and_send_alert():
         header_prefix = "🟢🟢 HIGH OPPORTUNITY BUY ALERT"
     elif score < 55:
         health_status = "Neutral 🟡"
-        header_prefix = "🟡 DISCOUNT WATCH ALERT"
+        header_prefix = "🟡 WATCH ALERT"
     else:
         health_status = "🔴 OVERBOUGHT / BULL RUN"
         header_prefix = "🟢 REGULAR MARKET REPORT"
