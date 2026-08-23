@@ -13,10 +13,11 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# Updated Small Cap tickers using Index for reliable 2020-2026 backtesting
 CATEGORIES_TICKERS = {
     "LARGE CAP": ["NIFTYBEES.NS", "^NSEI"],
     "MID CAP": ["MID150BEES.NS", "MIDCAPETF.NS"],
-    "SMALL CAP": ["^CNXSC", "HDFCSML250.NS", "SMLCAPBEES.NS"]
+    "SMALL CAP": ["^CNXSC", "SMLCAPBEES.NS", "HDFCSML250.NS"]
 }
 
 def calculate_rsi(series, period=14):
@@ -58,7 +59,6 @@ def parse_input_date(date_str):
     return datetime.now()
 
 def get_market_data(ticker_list, target_dt):
-    # Fetch historical window with fallback for holidays/weekends
     start_dt = target_dt - timedelta(days=4 * 365)
     start_str = start_dt.strftime("%Y-%m-%d")
     end_str = (target_dt + timedelta(days=2)).strftime("%Y-%m-%d")
@@ -68,7 +68,6 @@ def get_market_data(ticker_list, target_dt):
             df = yf.download(ticker, start=start_str, end=end_str, interval="1d", progress=False)
             close = extract_safe_series(df, 'Close')
             
-            # Filter strictly on or before target date
             close = close[close.index <= pd.Timestamp(target_dt)]
             
             if close.empty or len(close) < 20:
@@ -78,17 +77,14 @@ def get_market_data(ticker_list, target_dt):
             prev_close = float(close.iloc[-2]) if len(close) > 1 else current_price
             p_change = ((current_price - prev_close) / prev_close) * 100 if prev_close != 0 else 0.0
 
-            # 52-Week High Calculation
             rolling_window = min(len(close), 252)
             high_52w = float(close.rolling(window=rolling_window, min_periods=1).max().iloc[-1])
             drawdown = ((current_price - high_52w) / high_52w) * 100
 
-            # Weekly RSI
             weekly_close = close.resample('W').last().dropna()
             weekly_rsi = calculate_rsi(weekly_close, 14)
             cur_w_rsi = float(weekly_rsi.iloc[-1]) if not weekly_rsi.empty else 50.0
 
-            # Monthly RSI
             try:
                 monthly_close = close.resample('ME').last().dropna()
             except Exception:
@@ -97,7 +93,6 @@ def get_market_data(ticker_list, target_dt):
             monthly_rsi = calculate_rsi(monthly_close, 14)
             cur_m_rsi = float(monthly_rsi.iloc[-1]) if not monthly_rsi.empty else 50.0
 
-            # DMAs
             dma_50_val = float(close.rolling(min(len(close), 50), min_periods=1).mean().iloc[-1])
             dma_200_val = float(close.rolling(min(len(close), 200), min_periods=1).mean().iloc[-1])
 
@@ -113,7 +108,6 @@ def get_market_data(ticker_list, target_dt):
         except Exception:
             continue
 
-    # Fallback default values if ticker data completely unavailable
     return {
         'price': 100.0,
         'p_change': 0.0,
@@ -153,7 +147,7 @@ def evaluate_stage(data):
     dd = abs(data['drawdown'])
     w_rsi = data['weekly_rsi']
 
-    # EXACT UNTOUCHED STAGE EVALUATION LOGIC WITH ALL AND/OR CONDITIONS
+    # EXACT STAGE EVALUATION LOGIC
     if dd >= 25 or (dd >= 20 and w_rsi < 30):
         return 8, "🚨🚨 🛑 STAGE 8: MARKET CRASH 🛑 🚀🚀", "🟢🟢🟢 JACKPOT LUMPSUM BUY 🟢🟢🟢", "🟢🟢 SIP + 100% MAX EXTRA LUMPSUM 🟢🟢", 100
     elif dd >= 15 or (dd >= 12 and w_rsi < 35):
@@ -183,7 +177,6 @@ def generate_and_send_alert():
 
     cat_data = {k: get_market_data(v, target_dt) for k, v in CATEGORIES_TICKERS.items()}
 
-    # Safely Fetch India VIX for any historical date
     try:
         vix_start = (target_dt - timedelta(days=4 * 365)).strftime("%Y-%m-%d")
         vix_end = (target_dt + timedelta(days=2)).strftime("%Y-%m-%d")
@@ -197,32 +190,43 @@ def generate_and_send_alert():
     stages_eval = [evaluate_stage(cat_data[k]) for k in cat_data]
     stages_nums = [s[0] for s in stages_eval]
 
-    # STRICT TRIGGER RULE: Stage 2, 3, AND 4 ARE SUPPRESSED. Only Stage 1, 5, 6, 7, 8 trigger alert.
+    # STRICT SUPPRESSION: Stage 2, 3, 4 Suppressed
     should_send = any(s in [1, 5, 6, 7, 8] for s in stages_nums) or (vix_val >= 22.0)
 
     if not should_send and not args.test:
         print(f"[{formatted_date_str}] Market in Stage 2/3/4. Alert Suppressed.")
         return
 
-    # Category Matrix Building
     category_icons = {"LARGE CAP": "🏛️", "MID CAP": "📈", "SMALL CAP": "🚀"}
     stage_weights = {}
 
     weighted_dd = sum([abs(cat_data[k]['drawdown']) for k in cat_data]) / 3
     weighted_rsi = sum([cat_data[k]['weekly_rsi'] for k in cat_data]) / 3
-    score = max(0, min(100, (weighted_rsi * 0.6) + (vix_val * 0.4) - (weighted_dd * 1.8)))
+    
+    # RE-CALIBRATED BALANCED MARKET SCORE FORMULA
+    # Score 0-100: Higher = Peak/Overbought, Lower = Discount/Crash
+    rsi_component = weighted_rsi * 0.45
+    vix_component = min(vix_val, 40) * 0.25
+    dd_component = max(0, 100 - (weighted_dd * 2.5)) * 0.30
+    score = max(0, min(100, rsi_component + vix_component + dd_component))
 
-    if score < 30:
+    max_stage = max(stages_nums)
+    
+    # SYNCED HEADER & HEALTH STATUS LOGIC BASED ON ACTUAL STAGES
+    if max_stage in [7, 8] or score < 35:
         health_status = "🟢 EXTREME DISCOUNT"
         header_prefix = "🚨🚨 CRITICAL EMERGENCY CRASH ALERT"
-    elif score < 45:
+    elif max_stage in [5, 6] or score < 45:
         health_status = "🟢 MEGA DISCOUNT BUY"
         header_prefix = "🟢🟢 HIGH OPPORTUNITY BUY ALERT"
-    elif score < 55:
+    elif max_stage == 4:
         health_status = "Neutral 🟡"
-        header_prefix = "🟡 WATCH ALERT"
+        header_prefix = "🟡 SMALL DISCOUNT WATCH"
+    elif max_stage == 1:
+        health_status = "🔴 OVERBOUGHT / PEAK"
+        header_prefix = "🔴 ALL-TIME HIGH PEAK ALERT"
     else:
-        health_status = "🔴 OVERBOUGHT / BULL RUN"
+        health_status = "Neutral 🟡"
         header_prefix = "🟢 REGULAR MARKET REPORT"
 
     msg = f"{header_prefix}: AI WEALTH MANAGER\n"
@@ -252,7 +256,6 @@ def generate_and_send_alert():
         msg += f"• Weekly RSI: {data['weekly_rsi']:.2f} | Monthly RSI: {data['monthly_rsi']:.2f}\n"
         msg += f"• DMA Trend: {dma_status}\n\n"
 
-    # Context & Capital Plan
     news_summary = fetch_ai_news_summary(cat_data["LARGE CAP"]['p_change'], vix_val, is_historic=is_historic, date_str=formatted_date_str)
     msg += f"──────────────────────\n"
     msg += f"📰 MARKET CONTEXT & NEWS\n"
@@ -279,8 +282,8 @@ def generate_and_send_alert():
     msg += f"\n──────────────────────\n"
     msg += f"📈 MARKET HEALTH GUIDE\n"
     msg += f"(Score Range: 0 - 100)\n"
-    msg += f"• Score < 30 : 🟢 Extreme Crash / Heavy Buy\n"
-    msg += f"• Score 30-45: 🟢 Discount Market / Aggressive Buy\n"
+    msg += f"• Score < 35 : 🟢 Extreme Crash / Heavy Buy\n"
+    msg += f"• Score 35-45: 🟢 Discount Market / Aggressive Buy\n"
     msg += f"• Score 45-65: 🟡 Normal Market / Regular SIP\n"
     msg += f"• Score > 65 : 🔴 High Peak / Stop Lumpsum & Prepay Loan\n"
 
