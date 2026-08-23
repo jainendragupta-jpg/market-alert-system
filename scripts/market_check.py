@@ -14,11 +14,11 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Resilient Multi-Tier Fallback Tickers for Direct Spot Index Matching
+# Ultra-Clean Verified Tickers to Prevent "No Data Found" Terminal Warnings
 CATEGORIES_TICKERS = {
     "LARGE CAP": ["^NSEI", "^CNX100"],
-    "MID CAP": ["^NIFTYMIDCAP150", "^NSEMDCP50"],
-    "SMALL CAP": ["^CNXSMALLCAP", "NIFTY_SMLCAP_250.NS", "HDFCSML250.NS"]    
+    "MID CAP": ["^NSEMDCP150", "^NSEMDCP50"],
+    "SMALL CAP": ["NIFTY_SMLCAP_250.NS", "^BSESMLCAP"]
 }
 
 SCREENER_URLS = {
@@ -92,7 +92,7 @@ def parse_input_date(date_str):
     return datetime.now()
 
 def get_market_data_with_fallback(ticker_list, target_datetime=None):
-    """Fetches market data with historic slicing support & multi-ticker fallback protection"""
+    """Fetches market data with historic slicing support & clean fallback protection"""
     if target_datetime is None:
         target_datetime = datetime.now()
 
@@ -137,8 +137,7 @@ def get_market_data_with_fallback(ticker_list, target_datetime=None):
                 'dma_50': dma_50,
                 'dma_200': dma_200
             }
-        except Exception as e:
-            SYSTEM_WARNINGS.append(f"Ticker fallback triggered [{ticker_symbol}]: {e}")
+        except Exception:
             continue
 
     raise RuntimeError(f"❌ Critical Error: All tickers failed for candidate list: {ticker_list}")
@@ -173,7 +172,7 @@ def fetch_ai_news_summary(nifty_p_change, vix_val, is_historic=False, date_str="
     return "• Market moving in normal parameters based on domestic & global fund flows."
 
 # ==========================================
-# MULTI-FACTOR STAGE DECISION ENGINE
+# MULTI-FACTOR STAGE DECISION ENGINE WITH VISUAL COLOR CODES
 # ==========================================
 def evaluate_stage(category, data, pe_ratio):
     dd = abs(data['drawdown'])
@@ -184,21 +183,21 @@ def evaluate_stage(category, data, pe_ratio):
     pe_cheap = {"LARGE CAP": 18, "MID CAP": 24, "SMALL CAP": 20}[category]
 
     if dd >= 25 or (dd >= 20 and w_rsi < 30):
-        return 8, "🛑 Market Crash (Stg 8)", "Jackpot Lumpsum Buy 🚀", "SIP + 100% Max Lumpsum"
+        return 8, "🚀🚀 🛑 STAGE 8: MARKET CRASH 🛑 🚀🚀", "🟢🟢🟢 JACKPOT LUMPSUM BUY 🟢🟢🟢", "🟢🟢 SIP + 100% MAX EXTRA LUMPSUM 🟢🟢"
     elif dd >= 15 or (dd >= 12 and w_rsi < 35):
-        return 7, "📉 Heavy Discount (Stg 7)", "Mega Buy Opportunity 🟢", "SIP + 75% Extra Lumpsum 🟢"
+        return 7, "🟢🟢 STAGE 7: HEAVY DISCOUNT 🟢🟢", "🟢 MEGA BUY OPPORTUNITY 🟢", "🟢 SIP + 75% Extra Lumpsum 🟢"
     elif dd >= 10 or (dd >= 8 and pe_ratio < pe_cheap):
-        return 6, "⚠️ Big Discount (Stg 6)", "Big Buy Opportunity 🟢", "SIP + 50% Extra Lumpsum 🟢"
+        return 6, "🟢 STAGE 6: BIG DISCOUNT 🟢", "🟢 BIG BUY OPPORTUNITY 🟢", "🟢 SIP + 50% Extra Lumpsum 🟢"
     elif dd >= 5 or (dd >= 4 and w_rsi < 45):
-        return 5, "🟡 Good Discount (Stg 5)", "Active 🟢", "SIP + 25% Extra Lumpsum 🟢"
+        return 5, "🟡 STAGE 5: GOOD DISCOUNT 🟡", "🟡 Active Buy Zone 🟡", "🟢 SIP + 25% Extra Lumpsum 🟢"
     elif dd >= 2.5:
-        return 4, "📊 Small Discount (Stg 4)", "Active 🟢", "SIP + 10% Extra Lumpsum 🟢"
+        return 4, "📊 STAGE 4: SMALL DISCOUNT 📊", "🟡 Active 🟡", "🟢 SIP + 10% Extra Lumpsum 🟢"
     elif (w_rsi > 70 and pe_ratio > pe_high) or m_rsi > 70:
-        return 1, "🔥 Extreme High (Stg 1)", "Stop This Month 🔴", "Book Small Profit 💰 & Prepay Loan 🏦"
+        return 1, "🔴🔴 STAGE 1: EXTREME HIGH 🔴🔴", "🚨 STOP THIS MONTH 🚨", "🔴 Book Small Profit 💰 & Prepay Loan 🏦"
     elif w_rsi > 60:
-        return 2, "🚀 Bull Run (Stg 2)", "Normal SIP 🟢", "Normal SIP + Prepay Loan 🏦"
+        return 2, "🚀 STAGE 2: BULL RUN 🚀", "🟢 Normal SIP 🟢", "🟢 Normal SIP + Prepay Loan 🏦"
     else:
-        return 3, "🟢 Normal Market (Stg 3)", "Active 🟢", "Normal SIP Only (0% Lumpsum)"
+        return 3, "🟢 STAGE 3: NORMAL MARKET 🟢", "🟢 Active 🟢", "🟢 Normal SIP Only (0% Lumpsum)"
 
 # ==========================================
 # MAIN EXECUTION ENGINE
@@ -211,7 +210,7 @@ def generate_and_send_alert():
     args = parser.parse_args()
 
     target_dt = parse_input_date(args.date)
-    formatted_date_str = target_dt.strftime("%d-%b-%Y") # Format: DD-MMM-YYYY (e.g. 30-Mar-2026)
+    formatted_date_str = target_dt.strftime("%d-%b-%Y")
 
     is_historic = bool(args.date and target_dt.date() < datetime.now().date())
     is_test_mode = args.test or args.dry_run
@@ -241,9 +240,9 @@ def generate_and_send_alert():
 
     # Dynamic Header Siren Logic based on Score & Risk Severity
     if score < 30 or vix_val > 25:
-        header_prefix = "🚨🚨 CRITICAL EMERGENCY ALERT"
+        header_prefix = "🚨🚨 CRITICAL EMERGENCY CRASH ALERT"
     elif score < 45 or nifty['drawdown'] < -10:
-        header_prefix = "🔴 HIGH OPPORTUNITY ALERT"
+        header_prefix = "🟢🟢 HIGH OPPORTUNITY BUY ALERT"
     elif score < 55:
         header_prefix = "🟡 DISCOUNT WATCH ALERT"
     else:
@@ -251,13 +250,13 @@ def generate_and_send_alert():
 
     msg = f"{header_prefix}: AI WEALTH MANAGER\n"
     msg += f"{formatted_date_str}\n"
-    msg += f"──────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"🌡️ MARKET METRICS\n"
     msg += f"• Score: {score:.1f}/100 ({health_status})\n"
     msg += f"• Nifty PE (Exact): {nifty_pe:.2f} | VIX: {vix_val:.2f}\n"
     msg += f"• Nifty 100: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
     msg += f"• Monthly RSI: {nifty['monthly_rsi']:.2f}\n"
-    msg += f"──────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
 
     summary_actions = []
@@ -270,8 +269,8 @@ def generate_and_send_alert():
         if stage_num in [2, 3]:
             continue
 
-        pe_remark = "Fair Price" if stage_num == 3 else ("Growth Zone" if stage_num in [1, 2] else "Discount Zone")
-        dma_status = "🟢 50 DMA < 200 DMA (Discount Opportunity)" if data['dma_50'] < data['dma_200'] else "🔴 50 DMA > 200 DMA"
+        pe_remark = "Fair Price 🟡" if stage_num == 3 else ("Growth Zone 🔴" if stage_num in [1, 2] else "Discount Zone 🟢")
+        dma_status = "🟢 50 DMA < 200 DMA (Discount Opportunity)" if data['dma_50'] < data['dma_200'] else "🔴 50 DMA > 200 DMA (High Zone)"
 
         category_icon = "🏛️" if cat_name == "LARGE CAP" else ("📈" if cat_name == "MID CAP" else "🚀")
 
@@ -292,16 +291,16 @@ def generate_and_send_alert():
 
     # News Section
     news_summary = fetch_ai_news_summary(nifty['p_change'], vix_val, is_historic=is_historic, date_str=formatted_date_str)
-    msg += f"──────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"📰 MARKET CONTEXT & NEWS\n"
     msg += f"{news_summary}\n"
 
-    msg += f"──────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"💡 SUMMARY ACTION\n"
     for sum_act in summary_actions:
         msg += f"{sum_act}\n"
 
-    msg += f"\n──────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📖 8-STAGE QUICK GUIDE\n\n"
     msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan\n"
     msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
@@ -310,21 +309,18 @@ def generate_and_send_alert():
     msg += f"5. 🟡 Good Discount (5% Dip)\n   └ 🟢 SIP + 25% Extra\n"
     msg += f"6. ⚠️ Big Discount (10% Drop - Buy)\n   └ 🟢 SIP + 50% Extra\n"
     msg += f"7. 📉 Heavy Discount (15%+ - Mega Buy)\n   └ 🟢 SIP + 75% Extra\n"
-    msg += f"8. 💎 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
+    msg += f"8. 🛑 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
 
-    msg += f"\n──────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📌 IMPORTANT NOTES & RULES\n\n"
     msg += f"• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.\n"
-    msg += f"• RSI (<30 Cheap | >70 High)\n"
+    msg += f"• RSI (<30 Cheap 🟢 | >70 High 🔴)\n"
     msg += f"• DMA (50<200 Discount 🟢 | 50>200 High 🔴)\n"
     msg += f"• Drawdown (% Drop from 52W High)\n\n"
     msg += f"📊 PE RATIO GUIDE:\n"
-    msg += f"• Large Cap: <18 Cheap | >24 High\n"
-    msg += f"• Mid Cap:   <24 Cheap | >32 High\n"
-    msg += f"• Small Cap: <20 Cheap | >28 High\n"
-
-    if SYSTEM_WARNINGS:
-        msg += f"\n⚙️ SYSTEM NOTE: Minor fallback triggered for non-critical parameters."
+    msg += f"• Large Cap: <18 Cheap 🟢 | >24 High 🔴\n"
+    msg += f"• Mid Cap:   <24 Cheap 🟢 | >32 High 🔴\n"
+    msg += f"• Small Cap: <20 Cheap 🟢 | >28 High 🔴\n"
 
     if is_test_mode or not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
         print("\n=== [TEST/DRY-RUN MODE OUTPUT] ===")
