@@ -58,7 +58,7 @@ def parse_input_date(date_str):
     return datetime.now()
 
 def get_market_data(ticker_list, target_dt):
-    # Fetch 4 years prior to accommodate weekends, holidays, and full 200-DMA/Monthly RSI
+    # Fetch historical window with fallback for holidays/weekends
     start_dt = target_dt - timedelta(days=4 * 365)
     start_str = start_dt.strftime("%Y-%m-%d")
     end_str = (target_dt + timedelta(days=2)).strftime("%Y-%m-%d")
@@ -113,7 +113,7 @@ def get_market_data(ticker_list, target_dt):
         except Exception:
             continue
 
-    # Fallback default values if ticker data completely unavailable for extreme historical edge cases
+    # Fallback default values if ticker data completely unavailable
     return {
         'price': 100.0,
         'p_change': 0.0,
@@ -153,6 +153,7 @@ def evaluate_stage(data):
     dd = abs(data['drawdown'])
     w_rsi = data['weekly_rsi']
 
+    # EXACT UNTOUCHED STAGE EVALUATION LOGIC WITH ALL AND/OR CONDITIONS
     if dd >= 25 or (dd >= 20 and w_rsi < 30):
         return 8, "🚨🚨 🛑 STAGE 8: MARKET CRASH 🛑 🚀🚀", "🟢🟢🟢 JACKPOT LUMPSUM BUY 🟢🟢🟢", "🟢🟢 SIP + 100% MAX EXTRA LUMPSUM 🟢🟢", 100
     elif dd >= 15 or (dd >= 12 and w_rsi < 35):
@@ -196,11 +197,11 @@ def generate_and_send_alert():
     stages_eval = [evaluate_stage(cat_data[k]) for k in cat_data]
     stages_nums = [s[0] for s in stages_eval]
 
-    # TRIGGER RULE: Stage 2 aur 3 suppressed, Stage 1 aur Stage 4 to 8 par alert aayega
-    should_send = any(s in [1, 4, 5, 6, 7, 8] for s in stages_nums) or (vix_val >= 22.0)
+    # STRICT TRIGGER RULE: Stage 2, 3, AND 4 ARE SUPPRESSED. Only Stage 1, 5, 6, 7, 8 trigger alert.
+    should_send = any(s in [1, 5, 6, 7, 8] for s in stages_nums) or (vix_val >= 22.0)
 
     if not should_send and not args.test:
-        print(f"[{formatted_date_str}] Market in Stage 2/3. Alert Suppressed.")
+        print(f"[{formatted_date_str}] Market in Stage 2/3/4. Alert Suppressed.")
         return
 
     # Category Matrix Building
@@ -247,6 +248,7 @@ def generate_and_send_alert():
         msg += f"• SIP Status: {s_status}\n"
         msg += f"• Action: {s_action}\n"
         msg += f"• Price: {data['price']:.2f} ({data['p_change']:+.2f}%)\n"
+        msg += f"• Drawdown: {data['drawdown']:.2f}% from 52W High\n"
         msg += f"• Weekly RSI: {data['weekly_rsi']:.2f} | Monthly RSI: {data['monthly_rsi']:.2f}\n"
         msg += f"• DMA Trend: {dma_status}\n\n"
 
