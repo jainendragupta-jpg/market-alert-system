@@ -234,16 +234,19 @@ def run_market_check():
 
     max_stage = max([v[0] for v in eval_results.values()])
     
-    # SYNCED HEADER LOGIC
-    if max_stage in [7, 8] or score < 35:
-        health_status = "🟢 EXTREME DISCOUNT"
-        header_prefix = "🚨🚨 CRITICAL EMERGENCY CRASH ALERT"
-    elif max_stage in [5, 6] or score < 45:
-        health_status = "🟢 MEGA DISCOUNT BUY"
+# SYNCED HEADER LOGIC (Refined & Balanced Tone)
+    if max_stage == 8 or score <= 25:
+        health_status = "🚨 EXTREME CRASH"
+        header_prefix = "🚨🚨 EMERGENCY MARKET CRASH ALERT"
+    elif max_stage == 7 or score <= 35:
+        health_status = "🟢 HEAVY DISCOUNT"
         header_prefix = "🟢🟢 HIGH OPPORTUNITY BUY ALERT"
+    elif max_stage in [5, 6]:
+        health_status = "🟡 MODERATE DISCOUNT"
+        header_prefix = "🟡 MODERATE DISCOUNT OPPORTUNITY"
     elif max_stage == 4:
         health_status = "Neutral 🟡"
-        header_prefix = "🟡 SMALL DISCOUNT WATCH"
+        header_prefix = "📊 SMALL DISCOUNT WATCH"
     elif max_stage == 1:
         health_status = "🔴 OVERBOUGHT / PEAK"
         header_prefix = "🔴 ALL-TIME HIGH PEAK ALERT"
