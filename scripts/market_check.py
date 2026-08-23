@@ -17,8 +17,8 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Resilient Multi-Tier Fallback Tickers for Direct Spot Index Matching
 CATEGORIES_TICKERS = {
     "LARGE CAP": ["^NSEI", "^CNX100"],
-    "MID CAP": ["^NSEMDCP150", "^NSEMDCP50"],
-    "SMALL CAP": ["NIFTY_SMLCAP_250.NS", "^BSESMLCAP", "HDFCSML250.NS"]
+    "MID CAP": ["^NIFTYMIDCAP150", "^NSEMDCP50"],
+    "SMALL CAP": ["^CNXSMALLCAP", "NIFTY_SMLCAP_250.NS", "HDFCSML250.NS"]    
 }
 
 SCREENER_URLS = {
@@ -251,13 +251,13 @@ def generate_and_send_alert():
 
     msg = f"{header_prefix}: AI WEALTH MANAGER\n"
     msg += f"{formatted_date_str}\n"
-    msg += f"──────────────────────\n"
+    msg += f"──────────────────\n"
     msg += f"🌡️ MARKET METRICS\n"
     msg += f"• Score: {score:.1f}/100 ({health_status})\n"
     msg += f"• Nifty PE (Exact): {nifty_pe:.2f} | VIX: {vix_val:.2f}\n"
     msg += f"• Nifty 100: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
     msg += f"• Monthly RSI: {nifty['monthly_rsi']:.2f}\n"
-    msg += f"──────────────────────\n"
+    msg += f"──────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
 
     summary_actions = []
@@ -292,16 +292,16 @@ def generate_and_send_alert():
 
     # News Section
     news_summary = fetch_ai_news_summary(nifty['p_change'], vix_val, is_historic=is_historic, date_str=formatted_date_str)
-    msg += f"──────────────────────\n"
+    msg += f"──────────────────\n"
     msg += f"📰 MARKET CONTEXT & NEWS\n"
     msg += f"{news_summary}\n"
 
-    msg += f"──────────────────────\n"
+    msg += f"──────────────────\n"
     msg += f"💡 SUMMARY ACTION\n"
     for sum_act in summary_actions:
         msg += f"{sum_act}\n"
 
-    msg += f"\n──────────────────────\n"
+    msg += f"\n──────────────────\n"
     msg += f"📖 8-STAGE QUICK GUIDE\n\n"
     msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan\n"
     msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
@@ -310,9 +310,9 @@ def generate_and_send_alert():
     msg += f"5. 🟡 Good Discount (5% Dip)\n   └ 🟢 SIP + 25% Extra\n"
     msg += f"6. ⚠️ Big Discount (10% Drop - Buy)\n   └ 🟢 SIP + 50% Extra\n"
     msg += f"7. 📉 Heavy Discount (15%+ - Mega Buy)\n   └ 🟢 SIP + 75% Extra\n"
-    msg += f"8. 🛑 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
+    msg += f"8. 💎 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
 
-    msg += f"\n──────────────────────\n"
+    msg += f"\n──────────────────\n"
     msg += f"📌 IMPORTANT NOTES & RULES\n\n"
     msg += f"• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.\n"
     msg += f"• RSI (<30 Cheap | >70 High)\n"
