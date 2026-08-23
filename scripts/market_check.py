@@ -125,10 +125,10 @@ def evaluate_stage(data):
         return 5, "🟡 STAGE 5: GOOD DISCOUNT 🟡", "🟢 Active Buy Zone 🟢", "🟢 SIP + 25% Extra Lumpsum 🟢", 25
     elif dd >= 2.5:
         return 4, "📊 STAGE 4: SMALL DISCOUNT 📊", "🟡 Active Buy 🟡", "🟢 SIP + 10% Extra Lumpsum 🟢", 10
-    elif w_rsi > 70:
-        return 1, "🔴 STAGE 1: EXTREME HIGH 🔴", "🚨 PAUSE LUMPSUM 🚨", "🔴 Book Profit & Prepay Loan 🔴", 0
+    elif w_rsi > 72 and dd < 1.0:
+        return 1, "🔴 STAGE 1: EXTREME HIGH (PEAK) 🔴", "🟢 ALWAYS CONTINUE SIP 🟢", "🔴 Continuous SIP + Redirect Lumpsum Buffer to Loan 🔴", 0
     elif w_rsi > 60:
-        return 2, "🚀 STAGE 2: BULL RUN 🚀", "🟢 Normal SIP 🟢", "🟢 SIP + Prepay Loan 🏦", 0
+        return 2, "🚀 STAGE 2: BULL RUN 🚀", "🟢 Normal SIP 🟢", "🟢 SIP Continuous + Optional Loan Prepay 🏦", 0
     else:
         return 3, "🟢 STAGE 3: NORMAL MARKET 🟢", "🟢 Active 🟢", "🟢 Normal SIP Only 🟢", 0
 
@@ -185,12 +185,12 @@ def generate_and_send_alert():
 
     msg = f"{header_prefix}: AI WEALTH MANAGER\n"
     msg += f"{formatted_date_str}\n"
-    msg += f"────────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"🌡️ MARKET METRICS\n"
     msg += f"• Score: {score:.1f}/100 ({health_status})\n"
     msg += f"• India VIX Index: {vix_val:.2f}\n"
     msg += f"• Market Avg Drop: -{weighted_dd:.1f}% From High\n"
-    msg += f"────────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
 
     for cat_name in CATEGORIES_TICKERS.keys():
@@ -211,12 +211,12 @@ def generate_and_send_alert():
 
     # Context & Capital Plan
     news_summary = fetch_ai_news_summary(cat_data["LARGE CAP"]['p_change'], vix_val, is_historic=is_historic, date_str=formatted_date_str)
-    msg += f"────────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"📰 MARKET CONTEXT & NEWS\n"
     msg += f"{news_summary}\n\n"
 
     total_w = sum(stage_weights.values())
-    msg += f"────────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"💡 CAPITAL ALLOCATION PLAN\n"
     if total_w > 0:
         for k, v in stage_weights.items():
@@ -225,7 +225,7 @@ def generate_and_send_alert():
     else:
         msg += "• Maintain Standard SIPs | Direct Extra Buffer to Home Loan Prepayment (7.75%-7.85% ROI)\n"
 
-    msg += f"\n────────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📊 INDIA VIX RISK GUIDE\n"
     msg += f"(VIX = Market Fear & Volatility)\n"
     msg += f"• VIX < 15 : Low Volatility 🟡\n"
@@ -233,7 +233,7 @@ def generate_and_send_alert():
     msg += f"• VIX 22-30: High Fear / Buy Zone 🟢\n"
     msg += f"• VIX > 30 : Extreme Panic / Jackpot 🚀\n"
 
-    msg += f"\n────────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📈 MARKET HEALTH GUIDE\n"
     msg += f"(Score Range: 0 - 100)\n"
     msg += f"• Score < 30 : 🟢 Extreme Crash / Heavy Buy\n"
@@ -241,9 +241,9 @@ def generate_and_send_alert():
     msg += f"• Score 45-65: 🟡 Normal Market / Regular SIP\n"
     msg += f"• Score > 65 : 🔴 High Peak / Stop Lumpsum & Prepay Loan\n"
 
-    msg += f"\n────────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📖 8-STAGE QUICK GUIDE\n\n"
-    msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop Lumpsum | Prepay Loan (7.75%-7.85% ROI)\n"
+    msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Continuous SIP | Prepay Loan with Lumpsum Buffer\n"
     msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
     msg += f"3. 🟢 Normal Market (Fair Price)\n   └ 🟡 Normal SIP Only (0% Lumpsum)\n"
     msg += f"4. 📊 Small Discount (2-3% Dip)\n   └ 🟢 SIP + Extra Lumpsum\n"
@@ -252,13 +252,12 @@ def generate_and_send_alert():
     msg += f"7. 📉 Heavy Discount (15%+ - Mega Buy)\n   └ 🟢 SIP + Extra Lumpsum\n"
     msg += f"8. 🛑 Market Crash (25%+ - Jackpot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
 
-    msg += f"\n────────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📌 IMPORTANT NOTES & RULES\n\n"
-    msg += f"• NOTE: Lumpsum% Allocation in Stages 4-8 applies strictly to your Monthly Extra Capital Buffer.\n"
-    msg += f"• Stage 1 & 2 Signals: Pause Lumpsum & Redirect Funds to Loan Prepayment (7.75%-7.85% Guaranteed ROI).\n"
-    msg += f"• RSI (<30 Cheap 🟢 | >70 High 🔴)\n"
-    msg += f"• DMA (50<200 Discount 🟢 | 50>200 High 🔴)\n"
-    msg += f"• Drawdown (% Drop from 52W High)\n"
+    msg += f"• 💎 GOLDEN WEALTH RULE: NEVER STOP YOUR REGULAR SIP. Market creates a new all-time high every 2-3 years; continuous SIP compounds wealth effortlessly.\n"
+    msg += f"• Lumpsum Allocation: Extra Lumpsum% in Stages 4-8 applies strictly to your Monthly Extra Capital Buffer.\n"
+    msg += f"• Peak Protection: Stage 1 signals only pause Extra Lumpsum to safely prepay Home Loan (7.75%-7.85% ROI).\n"
+    msg += f"• Metrics: RSI (<30 Cheap 🟢 | >70 High 🔴) | DMA (50<200 Discount 🟢) | Drawdown (% Drop from 52W High)\n"
 
     if args.test or not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
         print("\n=== [TELEGRAM MESSAGE PREVIEW] ===")
