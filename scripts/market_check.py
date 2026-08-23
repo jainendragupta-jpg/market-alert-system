@@ -4,7 +4,7 @@ import requests
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================================
 # CONFIGURATION & CONSTANTS
@@ -50,9 +50,14 @@ def parse_input_date(date_str):
     return datetime.now()
 
 def get_market_data(ticker_list, target_dt):
+    # Dynamic 3-year historical window relative to target_dt for Backtest compatibility
+    start_dt = target_dt - timedelta(days=3 * 365)
+    start_str = start_dt.strftime("%Y-%m-%d")
+    end_str = (target_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+
     for ticker in ticker_list:
         try:
-            df = yf.download(ticker, period="3y", interval="1d", progress=False)
+            df = yf.download(ticker, start=start_str, end=end_str, interval="1d", progress=False)
             close = extract_safe_series(df, 'Close')
             close = close[close.index <= pd.Timestamp(target_dt)]
             if len(close) < 50:
@@ -145,7 +150,9 @@ def generate_and_send_alert():
     cat_data = {k: get_market_data(v, target_dt) for k, v in CATEGORIES_TICKERS.items()}
 
     try:
-        vix_df = yf.download("^INDIAVIX", period="3y", progress=False)
+        vix_start = (target_dt - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
+        vix_end = (target_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+        vix_df = yf.download("^INDIAVIX", start=vix_start, end=vix_end, progress=False)
         vix_series = extract_safe_series(vix_df, 'Close')
         vix_series = vix_series[vix_series.index <= pd.Timestamp(target_dt)]
         vix_val = float(vix_series.iloc[-1]) if not vix_series.empty else 15.0
@@ -178,7 +185,7 @@ def generate_and_send_alert():
         header_prefix = "🟢🟢 HIGH OPPORTUNITY BUY ALERT"
     elif score < 55:
         health_status = "Neutral 🟡"
-        header_prefix = "🟡 WATCH ALERT"
+        header_prefix = "🟡 DISCOUNT WATCH ALERT"
     else:
         health_status = "🔴 OVERBOUGHT / BULL RUN"
         header_prefix = "🟢 REGULAR MARKET REPORT"
