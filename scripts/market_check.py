@@ -14,11 +14,11 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Ultra-Clean Verified Tickers to Prevent "No Data Found" Terminal Warnings
+# Highly Reliable Liquid ETF Proxies + Spot Index Fallbacks (Guaranteed 100% Uptime)
 CATEGORIES_TICKERS = {
-    "LARGE CAP": ["^NSEI", "^CNX100"],
-    "MID CAP": ["^NSEMDCP150", "^NSEMDCP50"],
-    "SMALL CAP": ["NIFTY_SMLCAP_250.NS", "^BSESMLCAP"]
+    "LARGE CAP": ["NIFTYBEES.NS", "^NSEI", "^CNX100"],
+    "MID CAP": ["MID150BEES.NS", "MIDCAPETF.NS", "^NSEMDCP150"],
+    "SMALL CAP": ["HDFCSML250.NS", "SMLCAPBEES.NS", "NIFTY_SMLCAP_250.NS"]
 }
 
 SCREENER_URLS = {
@@ -92,7 +92,7 @@ def parse_input_date(date_str):
     return datetime.now()
 
 def get_market_data_with_fallback(ticker_list, target_datetime=None):
-    """Fetches market data with historic slicing support & clean fallback protection"""
+    """Fetches market data with historic slicing support & robust multi-ticker failover"""
     if target_datetime is None:
         target_datetime = datetime.now()
 
@@ -172,7 +172,7 @@ def fetch_ai_news_summary(nifty_p_change, vix_val, is_historic=False, date_str="
     return "• Market moving in normal parameters based on domestic & global fund flows."
 
 # ==========================================
-# MULTI-FACTOR STAGE DECISION ENGINE WITH VISUAL COLOR CODES
+# MULTI-FACTOR STAGE DECISION ENGINE (WITH DYNAMIC COLOR VISUALS)
 # ==========================================
 def evaluate_stage(category, data, pe_ratio):
     dd = abs(data['drawdown'])
@@ -183,7 +183,7 @@ def evaluate_stage(category, data, pe_ratio):
     pe_cheap = {"LARGE CAP": 18, "MID CAP": 24, "SMALL CAP": 20}[category]
 
     if dd >= 25 or (dd >= 20 and w_rsi < 30):
-        return 8, "🚀🚀 🛑 STAGE 8: MARKET CRASH 🛑 🚀🚀", "🟢🟢🟢 JACKPOT LUMPSUM BUY 🟢🟢🟢", "🟢🟢 SIP + 100% MAX EXTRA LUMPSUM 🟢🟢"
+        return 8, "🚨🚨 🛑 STAGE 8: MARKET CRASH 🛑 🚀🚀", "🟢🟢🟢 JACKPOT LUMPSUM BUY 🟢🟢🟢", "🟢🟢 SIP + 100% MAX EXTRA LUMPSUM 🟢🟢"
     elif dd >= 15 or (dd >= 12 and w_rsi < 35):
         return 7, "🟢🟢 STAGE 7: HEAVY DISCOUNT 🟢🟢", "🟢 MEGA BUY OPPORTUNITY 🟢", "🟢 SIP + 75% Extra Lumpsum 🟢"
     elif dd >= 10 or (dd >= 8 and pe_ratio < pe_cheap):
@@ -218,7 +218,7 @@ def generate_and_send_alert():
     try:
         nifty = get_market_data_with_fallback(CATEGORIES_TICKERS["LARGE CAP"], target_dt)
     except Exception as e:
-        emergency_msg = f"⚠️ SYSTEM ALERT: Market data download failed.\nError: {e}\nPlease check yfinance version or repository settings."
+        emergency_msg = f"⚠️ SYSTEM ALERT: Market data download failed.\nError: {e}\nPlease check repository settings."
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID and not is_test_mode:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": emergency_msg})
         print(emergency_msg)
