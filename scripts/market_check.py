@@ -205,15 +205,20 @@ def run_market_check():
     except Exception:
         vix_val = 15.0
 
-    stages_eval = [evaluate_stage(cat_data[k]) for k in cat_data]
-    stages_nums = [s[0] for s in stages_eval]
+    eval_results = {k: evaluate_stage(cat_data[k]) for k in cat_data}
+    
+    # DYNAMIC FILTERING: Select only categories in Stage 1 or Stage 5, 6, 7, 8
+    active_categories = {k: v for k, v in eval_results.items() if v[0] in [1, 5, 6, 7, 8]}
 
-    # STRICT SUPPRESSION: Stage 2, 3, 4 Suppressed
-    should_send = any(s in [1, 5, 6, 7, 8] for s in stages_nums) or (vix_val >= 22.0)
+    # Suppress alert if no category is in Stage 1 or 5-8 (unless VIX >= 22)
+    should_send = len(active_categories) > 0 or (vix_val >= 22.0)
 
     if not should_send and not args.test:
-        print(f"[{formatted_date_str}] Market in Stage 2/3/4. Alert Suppressed.")
+        print(f"[{formatted_date_str}] Market in Stage 2/3/4 for all categories. Alert Suppressed.")
         return
+
+    # In --test mode, if no active category exists, show all categories for preview purposes
+    display_categories = active_categories if len(active_categories) > 0 else eval_results
 
     category_icons = {"LARGE CAP": "🏛️", "MID CAP": "📈", "SMALL CAP": "🚀"}
     stage_weights = {}
@@ -221,13 +226,13 @@ def run_market_check():
     weighted_dd = sum([abs(cat_data[k]['drawdown']) for k in cat_data]) / 3
     weighted_rsi = sum([cat_data[k]['weekly_rsi'] for k in cat_data]) / 3
     
-    # RE-CALIBRATED BALANCED MARKET SCORE FORMULA
+    # BALANCED MARKET SCORE FORMULA
     rsi_component = weighted_rsi * 0.45
     vix_component = min(vix_val, 40) * 0.25
     dd_component = max(0, 100 - (weighted_dd * 2.5)) * 0.30
     score = max(0, min(100, rsi_component + vix_component + dd_component))
 
-    max_stage = max(stages_nums)
+    max_stage = max([v[0] for v in eval_results.values()])
     
     # SYNCED HEADER LOGIC
     if max_stage in [7, 8] or score < 35:
@@ -256,9 +261,10 @@ def run_market_check():
     msg += f"──────────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
 
-    for cat_name in CATEGORIES_TICKERS.keys():
+    # ONLY RENDER ACTIVE CATEGORIES (STAGE 2, 3, 4 EXCLUDED DYNAMICALLY)
+    for cat_name in display_categories.keys():
         data = cat_data[cat_name]
-        s_num, s_title, s_status, s_action, l_weight = evaluate_stage(data)
+        s_num, s_title, s_status, s_action, l_weight = display_categories[cat_name]
         stage_weights[cat_name] = l_weight
 
         dma_status = "🟢 50 DMA < 200 DMA (Discount Opportunity)" if data['dma_50'] < data['dma_200'] else "🔴 50 DMA > 200 DMA (High Zone)"
