@@ -27,7 +27,6 @@ SCREENER_URLS = {
     "SMALL CAP": "https://www.screener.in/company/NIFTYSMALLCAP50/"
 }
 
-# System Execution Health Logger
 SYSTEM_WARNINGS = []
 
 # ==========================================
@@ -80,21 +79,43 @@ def extract_safe_series(df, col_name='Close'):
         series = df[col_name]
     return series.dropna()
 
-def get_market_data_with_fallback(ticker_list):
-    """Executes ticker failover logic for maximum uptime"""
+def parse_input_date(date_str):
+    """Parses various date format strings into datetime object"""
+    if not date_str:
+        return datetime.now()
+    formats = ["%Y-%m-%d", "%d-%m-%Y", "%d-%b-%Y", "%d/%m/%Y"]
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            pass
+    return datetime.now()
+
+def get_market_data_with_fallback(ticker_list, target_datetime=None):
+    """Fetches market data with historic slicing support for backtesting"""
+    if target_datetime is None:
+        target_datetime = datetime.now()
+
     for ticker_symbol in ticker_list:
         try:
-            df = yf.download(ticker_symbol, period="2y", interval="1d", progress=False)
+            # Fetch 3 years data up to current/target
+            df = yf.download(ticker_symbol, period="3y", interval="1d", progress=False)
             close = extract_safe_series(df, 'Close')
             
-            if close.empty or len(close) < 50:
+            if close.empty:
+                continue
+
+            # Slice series up to target date (handles historic testing)
+            close = close[close.index <= pd.Timestamp(target_datetime)]
+
+            if len(close) < 50:
                 continue
 
             current_price = float(close.iloc[-1])
-            prev_close = float(close.iloc[-2])
-            p_change = ((current_price - prev_close) / prev_close) * 100
+            prev_close = float(close.iloc[-2]) if len(close) > 1 else current_price
+            p_change = ((current_price - prev_close) / prev_close) * 100 if prev_close != 0 else 0.0
 
-            high_52w = float(close.rolling(window=252, min_periods=1).max().iloc[-1])
+            high_52w = float(close.rolling(window=min(len(close), 252), min_periods=1).max().iloc[-1])
             drawdown = ((current_price - high_52w) / high_52w) * 100
 
             weekly_close = close.resample('W').last().dropna()
@@ -106,8 +127,8 @@ def get_market_data_with_fallback(ticker_list):
             cur_w_rsi = float(weekly_rsi.iloc[-1]) if not weekly_rsi.empty else 50.0
             cur_m_rsi = float(monthly_rsi.iloc[-1]) if not monthly_rsi.empty else 50.0
 
-            dma_50 = float(close.rolling(window=50, min_periods=1).mean().iloc[-1])
-            dma_200 = float(close.rolling(window=200, min_periods=1).mean().iloc[-1])
+            dma_50 = float(close.rolling(window=min(len(close), 50), min_periods=1).mean().iloc[-1])
+            dma_200 = float(close.rolling(window=min(len(close), 200), min_periods=1).mean().iloc[-1])
 
             return {
                 'price': current_price,
@@ -124,8 +145,11 @@ def get_market_data_with_fallback(ticker_list):
 
     raise RuntimeError(f"❌ Critical Error: All tickers failed for candidate list: {ticker_list}")
 
-def fetch_ai_news_summary(nifty_p_change, vix_val):
-    """Fetches simple 2-3 line market context using Google Gemini API or RSS fallback"""
+def fetch_ai_news_summary(nifty_p_change, vix_val, is_historic=False, date_str=""):
+    """Fetches simple market context using Google Gemini API or RSS fallback"""
+    if is_historic:
+        return f"• Historical Backtest Mode ({date_str}): Market metrics calculated based on historical price action."
+
     if not GEMINI_API_KEY:
         if nifty_p_change < -1.0:
             return "• Market down due to standard profit booking and FII institutional rebalancing."
@@ -182,22 +206,31 @@ def evaluate_stage(category, data, pe_ratio):
 # MAIN EXECUTION ENGINE
 # ==========================================
 def generate_and_send_alert():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--date', type=str, help='Run date format YYYY-MM-DD')
+    parser = argparse.ArgumentParser(description="AI Wealth Manager Strategy Engine")
+    parser.add_argument('--date', type=str, help='Run date format YYYY-MM-DD or DD-MM-YYYY')
     parser.add_argument('--test', action='store_true', help='Test mode flag')
+    parser.add_argument('--dry-run', action='store_true', help='Dry run flag (outputs to console only)')
     args = parser.parse_args()
 
+    target_dt = parse_input_date(args.date)
+    formatted_date_str = target_dt.strftime("%d-%b-%Y") # Output format: DD-MMM-YYYY (e.g. 11-Mar-2026)
+
+    is_historic = bool(args.date and target_dt.date() < datetime.now().date())
+    is_test_mode = args.test or args.dry_run
+
     try:
-        nifty = get_market_data_with_fallback(CATEGORIES_TICKERS["LARGE CAP"])
+        nifty = get_market_data_with_fallback(CATEGORIES_TICKERS["LARGE CAP"], target_dt)
     except Exception as e:
         emergency_msg = f"⚠️ SYSTEM ALERT: Market data download failed.\nError: {e}\nPlease check yfinance version or repository settings."
-        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID and not is_test_mode:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": emergency_msg})
+        print(emergency_msg)
         return
 
     try:
-        vix_df = yf.download("^INDIAVIX", period="5d", progress=False)
+        vix_df = yf.download("^INDIAVIX", period="3y", progress=False)
         vix_series = extract_safe_series(vix_df, 'Close')
+        vix_series = vix_series[vix_series.index <= pd.Timestamp(target_dt)]
         vix_val = float(vix_series.iloc[-1]) if not vix_series.empty else 15.0
     except Exception:
         vix_val = 15.0
@@ -208,23 +241,21 @@ def generate_and_send_alert():
     score = max(0, min(100, score))
     health_status = "Neutral 🟡" if 40 <= score <= 60 else ("Bullish 🔴" if score < 40 else "Discount Zone 🟢")
 
-    date_str = args.date if args.date else datetime.now().strftime("%d-%b-%Y")
-
     msg = f"🚨 ACTION ALERT: AI WEALTH MANAGER\n"
-    msg += f"{date_str}\n"
-    msg += f"────────────────────\n"
+    msg += f"{formatted_date_str}\n"
+    msg += f"──────────────────────\n"
     msg += f"🌡️ MARKET METRICS\n"
     msg += f"• Score: {score:.1f}/100 ({health_status})\n"
     msg += f"• Nifty PE (Exact): {nifty_pe:.2f} | VIX: {vix_val:.2f}\n"
     msg += f"• Nifty 50: {nifty['price']:.2f} ({nifty['p_change']:+.2f}%)\n"
     msg += f"• Monthly RSI: {nifty['monthly_rsi']:.2f}\n"
-    msg += f"────────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"🏛️ ACTIONABLE CATEGORY MATRIX\n\n"
 
     summary_actions = []
 
     for cat_name, ticker_list in CATEGORIES_TICKERS.items():
-        data = get_market_data_with_fallback(ticker_list)
+        data = get_market_data_with_fallback(ticker_list, target_dt)
         pe = fetch_screener_pe(cat_name)
         stage_num, stage_title, sip_status, action_text = evaluate_stage(cat_name, data, pe)
 
@@ -251,18 +282,18 @@ def generate_and_send_alert():
     if not summary_actions:
         msg += "🟢 ALL CATEGORIES ARE IN NORMAL ZONE (STAGE 2/3). NO SPECIAL LUMPSUM/PROFIT BOOKING NEEDED.\n\n"
 
-    # Context-Only Simple News Section
-    news_summary = fetch_ai_news_summary(nifty['p_change'], vix_val)
-    msg += f"────────────────────\n"
+    # News Section
+    news_summary = fetch_ai_news_summary(nifty['p_change'], vix_val, is_historic=is_historic, date_str=formatted_date_str)
+    msg += f"──────────────────────\n"
     msg += f"📰 MARKET CONTEXT & NEWS\n"
     msg += f"{news_summary}\n"
 
-    msg += f"────────────────────\n"
+    msg += f"──────────────────────\n"
     msg += f"💡 SUMMARY ACTION\n"
     for sum_act in summary_actions:
         msg += f"{sum_act}\n"
 
-    msg += f"\n──────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📖 8-STAGE QUICK GUIDE\n\n"
     msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop SIP | Book Small Profit -> Prepay Loan\n"
     msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
@@ -273,7 +304,7 @@ def generate_and_send_alert():
     msg += f"7. 📉 Heavy Discount (15%+ - Mega Buy)\n   └ 🟢 SIP + 75% Extra\n"
     msg += f"8. 🛑 Market Crash (25%+ - JackPot Buy)\n   └ 🚀 SIP + Max Lumpsum Buy\n"
 
-    msg += f"\n───────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📌 IMPORTANT NOTES & RULES\n\n"
     msg += f"• NOTE: Extra Lumpsum% (10% to 100%) in Stages 4-8 applies strictly to your allocated Monthly Extra Lumpsum Capital Buffer.\n"
     msg += f"• RSI (<30 Cheap | >70 High)\n"
@@ -287,14 +318,15 @@ def generate_and_send_alert():
     if SYSTEM_WARNINGS:
         msg += f"\n⚙️ SYSTEM NOTE: Minor fallback triggered for non-critical parameters."
 
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+    # Dispatch Logic: Output to console in test/dry-run mode, else send Telegram
+    if is_test_mode or not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        print("\n=== [TEST/DRY-RUN MODE OUTPUT] ===")
+        print(msg)
+    else:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
         res = requests.post(url, json=payload, timeout=10)
         print("Telegram Response Status:", res.status_code)
-    else:
-        print("Telegram Credentials not set. Outputting message to console:\n")
-        print(msg)
 
 if __name__ == "__main__":
     generate_and_send_alert()
