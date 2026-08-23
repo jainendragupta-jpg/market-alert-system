@@ -16,7 +16,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 CATEGORIES_TICKERS = {
     "LARGE CAP": ["NIFTYBEES.NS", "^NSEI"],
     "MID CAP": ["MID150BEES.NS", "MIDCAPETF.NS"],
-    "SMALL CAP": ["HDFCSML250.NS", "SMLCAPBEES.NS"]
+    "SMALL CAP": ["^CNXSC", "HDFCSML250.NS", "SMLCAPBEES.NS"]
 }
 
 def calculate_rsi(series, period=14):
