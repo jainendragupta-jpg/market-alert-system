@@ -234,6 +234,14 @@ def generate_and_send_alert():
     msg += f"• VIX > 30 : Extreme Panic / Jackpot 🚀\n"
 
     msg += f"\n──────────────────────\n"
+    msg += f"📈 MARKET HEALTH GUIDE\n"
+    msg += f"(Score Range: 0 - 100)\n"
+    msg += f"• Score < 30 : 🟢 Extreme Crash / Heavy Buy\n"
+    msg += f"• Score 30-45: 🟢 Discount Market / Aggressive Buy\n"
+    msg += f"• Score 45-65: 🟡 Normal Market / Regular SIP\n"
+    msg += f"• Score > 65 : 🔴 High Peak / Stop Lumpsum & Prepay Loan\n"
+
+    msg += f"\n──────────────────────\n"
     msg += f"📖 8-STAGE QUICK GUIDE\n\n"
     msg += f"1. 🔥 Extreme High (All-Time Peak)\n   └ 🔴 Stop Lumpsum | Prepay Loan (7.75%-7.85% ROI)\n"
     msg += f"2. 🚀 Bull Run (High Zone)\n   └ 🔴 Normal SIP | Prepay Loan\n"
