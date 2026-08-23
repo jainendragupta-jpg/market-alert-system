@@ -1,4 +1,6 @@
 import os
+import sys
+import traceback
 import argparse
 import requests
 import numpy as np
@@ -13,12 +15,30 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Updated Small Cap tickers using Index for reliable 2020-2026 backtesting
+# Updated Small Cap tickers using Index (^CNXSC) for reliable historical backtesting
 CATEGORIES_TICKERS = {
     "LARGE CAP": ["NIFTYBEES.NS", "^NSEI"],
     "MID CAP": ["MID150BEES.NS", "MIDCAPETF.NS"],
     "SMALL CAP": ["^CNXSC", "SMLCAPBEES.NS", "HDFCSML250.NS"]
 }
+
+def send_telegram_error_alert(error_msg):
+    """Sends a critical alert to Telegram if code encounters a bug or API failure"""
+    if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+        print(f"ERROR ALERT (Not Sent - Missing Token/ChatID): {error_msg}")
+        return
+    
+    alert_text = (
+        "⚠️ **SCRIPT MAINTENANCE REQUIRED** ⚠️\n\n"
+        "Market Check Script execution mein ek error aaya hai.\n"
+        "Kripya code update ya API/Ticker verify karein.\n\n"
+        f"🚨 **Error Details:**\n`{error_msg[:300]}`"
+    )
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": alert_text, "parse_mode": "Markdown"}, timeout=10)
+    except Exception as e:
+        print(f"Failed to send error alert to Telegram: {e}")
 
 def calculate_rsi(series, period=14):
     if len(series) < period:
@@ -67,7 +87,6 @@ def get_market_data(ticker_list, target_dt):
         try:
             df = yf.download(ticker, start=start_str, end=end_str, interval="1d", progress=False)
             close = extract_safe_series(df, 'Close')
-            
             close = close[close.index <= pd.Timestamp(target_dt)]
             
             if close.empty or len(close) < 20:
@@ -147,7 +166,6 @@ def evaluate_stage(data):
     dd = abs(data['drawdown'])
     w_rsi = data['weekly_rsi']
 
-    # EXACT STAGE EVALUATION LOGIC
     if dd >= 25 or (dd >= 20 and w_rsi < 30):
         return 8, "🚨🚨 🛑 STAGE 8: MARKET CRASH 🛑 🚀🚀", "🟢🟢🟢 JACKPOT LUMPSUM BUY 🟢🟢🟢", "🟢🟢 SIP + 100% MAX EXTRA LUMPSUM 🟢🟢", 100
     elif dd >= 15 or (dd >= 12 and w_rsi < 35):
@@ -165,7 +183,7 @@ def evaluate_stage(data):
     else:
         return 3, "🟢 STAGE 3: NORMAL MARKET 🟢", "🟢 Active 🟢", "🟢 Normal SIP Only 🟢", 0
 
-def generate_and_send_alert():
+def run_market_check():
     parser = argparse.ArgumentParser()
     parser.add_argument('--date', type=str)
     parser.add_argument('--test', action='store_true')
@@ -204,7 +222,6 @@ def generate_and_send_alert():
     weighted_rsi = sum([cat_data[k]['weekly_rsi'] for k in cat_data]) / 3
     
     # RE-CALIBRATED BALANCED MARKET SCORE FORMULA
-    # Score 0-100: Higher = Peak/Overbought, Lower = Discount/Crash
     rsi_component = weighted_rsi * 0.45
     vix_component = min(vix_val, 40) * 0.25
     dd_component = max(0, 100 - (weighted_dd * 2.5)) * 0.30
@@ -212,7 +229,7 @@ def generate_and_send_alert():
 
     max_stage = max(stages_nums)
     
-    # SYNCED HEADER & HEALTH STATUS LOGIC BASED ON ACTUAL STAGES
+    # SYNCED HEADER LOGIC
     if max_stage in [7, 8] or score < 35:
         health_status = "🟢 EXTREME DISCOUNT"
         header_prefix = "🚨🚨 CRITICAL EMERGENCY CRASH ALERT"
@@ -314,4 +331,10 @@ def generate_and_send_alert():
         print("Telegram Alert Sent Successfully!")
 
 if __name__ == "__main__":
-    generate_and_send_alert()
+    try:
+        run_market_check()
+    except Exception as err:
+        err_trace = traceback.format_exc()
+        print(f"CRITICAL ERROR EXECUTING SCRIPT: {err_trace}")
+        send_telegram_error_alert(err_trace)
+        sys.exit(1)
