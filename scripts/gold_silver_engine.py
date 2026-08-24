@@ -1,283 +1,309 @@
-import os
+import time
 import json
-import argparse
-import requests
+import logging
+import os
+import datetime
 import pandas as pd
+import numpy as np
 import yfinance as yf
-from datetime import datetime, timedelta
+import requests
 
-# ==========================================
-# ENVIRONMENT SECRETS & CONFIGURATION
-# ==========================================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# -------------------------------------------------------------------
+# 1. LOGGING & SYSTEM CONFIGURATION
+# -------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("nippon_etf_expert.log"),
+        logging.StreamHandler()
+    ]
+)
 
-STATE_FILE = "trade_state.json"
-
-ASSETS = {
-    "GOLDBEES": {
-        "etf": "GOLDBEES.NS",
-        "name": "Nippon India Gold BeES ETF",
-        "benchmark": "GC=F"
-    },
-    "SILVERBEES": {
-        "etf": "SILVERBEES.NS",
-        "name": "Nippon India Silver BeES ETF",
-        "benchmark": "SI=F"
-    }
+CONFIG = {
+    "SYMBOL": "GOLDBEES.NS",          # Nippon India ETF Gold BeES (NSE)
+    "SILVER_SYMBOL": "SILVERBEES.NS", # Nippon India ETF Silver BeES (NSE)
+    "GLOBAL_GOLD_SYMBOL": "GC=F",      # Global Gold Futures for War/Macro Analysis
+    "BACKTEST": False,                # Set to True for backtesting
+    "BACKTEST_START": "2025-01-01",
+    "BACKTEST_END": "2026-08-24",
+    "STATE_FILE": "nippon_trade_state.json",
+    "TELEGRAM_BOT_TOKEN": "YOUR_TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID": "YOUR_TELEGRAM_CHAT_ID",
+    "INVESTMENT_CAPITAL_INR": 50000,  # User Capital
+    "TRAILING_ATR_MULT": 1.8          # Conservative ATR Multiplier for Positional Trades
 }
 
-MACRO_TICKERS = {
-    "DXY": "DX-Y.NYB",   # US Dollar Index
-    "US10Y": "^TNX"      # US 10-Yr Treasury Yield
-}
-
-# ==========================================
-# STATE & DATA MANAGEMENT
-# ==========================================
-def load_state():
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"positions": {}, "total_capital": 50000}
-
-def save_state(state):
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=4)
-    except Exception as e:
-        print(f"Error saving state: {e}")
-
-def calculate_rsi(series, period=14):
-    if len(series) < period + 1:
-        return 50.0
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
-    loss_safe = loss.replace(0, 1e-9)
-    rs = gain / loss_safe
-    rsi = 100 - (100 / (1 + rs))
-    val = float(rsi.iloc[-1])
-    return val if not pd.isna(val) else 50.0
-
-def fetch_robust_data(symbol, end_date_str=None):
-    try:
-        if end_date_str:
-            end_dt = datetime.strptime(end_date_str, "%Y-%m-%d") + timedelta(days=1)
-            start_dt = end_dt - timedelta(days=365)
-            df = yf.download(symbol, start=start_dt.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"), progress=False)
-        else:
-            df = yf.download(symbol, period="1y", interval="1d", progress=False)
-
-        if df.empty:
-            return None
-
-        if isinstance(df.columns, pd.MultiIndex):
-            close_series = df['Close'].iloc[:, 0]
-        else:
-            close_series = df['Close']
-            
-        close_series = close_series.dropna()
-        if len(close_series) < 20:
-            return None
-
-        curr_price = float(close_series.iloc[-1])
-        high_52w = float(close_series.max())
-        ma_50 = float(close_series.tail(50).mean())
-        ma_200 = float(close_series.tail(200).mean()) if len(close_series) >= 200 else ma_50
-        
-        drawdown = ((curr_price - high_52w) / high_52w) * 100
-        daily_rsi = calculate_rsi(close_series, 14)
-
-        weekly_series = close_series.resample('W').last().dropna()
-        weekly_rsi = calculate_rsi(weekly_series, 14)
-
-        return {
-            "price": curr_price,
-            "high_52w": high_52w,
-            "drawdown": drawdown,
-            "daily_rsi": daily_rsi,
-            "weekly_rsi": weekly_rsi,
-            "ma_50": ma_50,
-            "ma_200": ma_200
-        }
-    except Exception as e:
-        print(f"Data fetch error for {symbol}: {e}")
-        return None
-
-def check_festive_season(test_date):
-    month = test_date.month
-    if month in [3, 4, 8, 9, 10]:
-        return "Festive Accumulation Window Active 🪔"
-    return "Standard Positional Trading Window 📊"
-
-def get_ai_intelligence(asset_name, action, data, dxy_val):
-    if not GEMINI_API_KEY:
-        return "• Global macro environment aligns with current technical setup.\n• Stick strictly to execution parameters."
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        prompt = (
-            f"Role: Senior CIO & Gold/Silver Bullion Strategist. Asset: {asset_name}, Action: {action}. "
-            f"Price: ₹{data['price']:.2f}, Drawdown: {data['drawdown']:.2f}%, Weekly RSI: {data['weekly_rsi']:.1f}, DXY: {dxy_val}. "
-            "Task: Give 2 brief bullet points in simple Hindi/English mixing: "
-            "1) Macro Reason & News impact (Fed, Dollar index, Inflation), "
-            "2) Immediate 24-48 hour market outlook."
-        )
-        res = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=10)
-        if res.status_code == 200:
-            return res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
-    except Exception:
-        pass
-    return "• Global macro trends favor this execution stage.\n• Market structure is supportive for positional holding."
-
-# ==========================================
-# MAIN EXECUTION ENGINE
-# ==========================================
-def main():
-    parser = argparse.ArgumentParser(description="Institutional Bullion AI Engine")
-    parser.add_argument("--date", type=str, help="Backtest date (YYYY-MM-DD)", default=None)
-    args = parser.parse_args()
-
-    if args.date:
-        exec_date_str = args.date
-        exec_date = datetime.strptime(exec_date_str, "%Y-%m-%d")
-        is_dry_run = True
-    else:
-        exec_date = datetime.now()
-        exec_date_str = exec_date.strftime("%Y-%m-%d")
-        is_dry_run = False
-
-    state = load_state()
-    positions = state.get("positions", {})
-
-    dxy_data = fetch_robust_data(MACRO_TICKERS["DXY"], exec_date_str)
-    dxy_val = f"{dxy_data['price']:.2f}" if dxy_data else "N/A"
-    festive_status = check_festive_season(exec_date)
-
-    signals = []
-
-    for key, info in ASSETS.items():
-        data = fetch_robust_data(info["etf"], exec_date_str)
-        if not data:
-            data = fetch_robust_data(info["benchmark"], exec_date_str)
-            if not data:
-                continue
-
-        curr_p = data["price"]
-        dd = data["drawdown"]
-        w_rsi = data["weekly_rsi"]
-        d_rsi = data["daily_rsi"]
-        pos = positions.get(key, None)
-
-        # 🟢 BUY LOGIC (Tranche-1: ₹15,000)
-        if pos is None:
-            if (dd <= -4.0 or w_rsi < 42 or d_rsi < 38):
-                ai_desc = get_ai_intelligence(info["name"], "BUY", data, dxy_val)
-                signals.append({
-                    "type": "BUY",
-                    "asset_key": key,
-                    "name": info["name"],
-                    "price": curr_p,
-                    "limit_price": round(curr_p * 0.998, 2),
-                    "drawdown": dd,
-                    "weekly_rsi": w_rsi,
-                    "daily_rsi": d_rsi,
-                    "ma_50": data["ma_50"],
-                    "amount": "₹15,000 (Tranche 1)",
-                    "ai_note": ai_desc
-                })
-                if not is_dry_run:
-                    positions[key] = {
-                        "buy_price": curr_p,
-                        "highest_seen": curr_p,
-                        "buy_date": exec_date_str,
-                        "amount": 15000
-                    }
-
-        # 🔴 PROFIT BOOKING & TRAILING STOP LOGIC
-        else:
-            buy_p = pos["buy_price"]
-            highest_seen = max(pos.get("highest_seen", buy_p), curr_p)
-            gain_pct = ((curr_p - buy_p) / buy_p) * 100
-
-            if not is_dry_run:
-                positions[key]["highest_seen"] = highest_seen
-
-            trailing_drop = ((highest_seen - curr_p) / highest_seen) * 100
-
-            if (gain_pct >= 6.5 and trailing_drop >= 1.5) or w_rsi >= 74 or gain_pct >= 12.0:
-                ai_desc = get_ai_intelligence(info["name"], "SELL", data, dxy_val)
-                signals.append({
-                    "type": "SELL",
-                    "asset_key": key,
-                    "name": info["name"],
-                    "price": curr_p,
-                    "buy_price": buy_p,
-                    "gain_pct": gain_pct,
-                    "weekly_rsi": w_rsi,
-                    "ai_note": ai_desc
-                })
-                if not is_dry_run:
-                    positions.pop(key, None)
-
-    if not is_dry_run:
-        state["positions"] = positions
-        save_state(state)
-
-    if not signals:
-        print(f"[{exec_date_str}] Institutional Engine Status: No high-probability setup today.")
+# -------------------------------------------------------------------
+# 2. TELEGRAM NOTIFIER SYSTEM WITH BEAUTIFUL HTML FORMATTING
+# -------------------------------------------------------------------
+def send_telegram_message(message: str):
+    token = CONFIG.get("TELEGRAM_BOT_TOKEN")
+    chat_id = CONFIG.get("TELEGRAM_CHAT_ID")
+    if not token or token == "YOUR_TELEGRAM_BOT_TOKEN":
+        logging.info(f"\n================ [TELEGRAM ALERT] ================\n{message}\n==================================================")
         return
 
-    # TELEGRAM NOTIFICATION FORMATTING
-    mode_tag = "🧪 [BACKTEST MODE]" if is_dry_run else "🚨 [INSTITUTIONAL SIGNAL ALERT]"
-    msg = f"{mode_tag}\n"
-    msg += f"🏛️ *AI BULLION WEALTH ENGINE*\n"
-    msg += f"📅 Date: {exec_date.strftime('%d-%b-%Y')} | Window: 1.5 Hours\n"
-    msg += f"🌐 US Dollar Index (DXY): `{dxy_val}` | Cycle: `{festive_status}`\n"
-    msg += f"─────────────────────────────────\n\n"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        logging.error(f"Telegram Notification Error: {e}")
 
-    for sig in signals:
-        if sig["type"] == "BUY":
-            msg += f"🟢 *SIGNAL: STAGE-1 BUY ACCUMULATE* ({sig['asset_key']})\n"
-            msg += f"📌 *Asset:* {sig['name']}\n"
-            msg += f"📲 *Action:* Groww App par *{sig['amount']}* ki buying karein.\n"
-            msg += f"💵 *Current Market Price:* ₹{sig['price']:.2f}\n"
-            msg += f"🎯 *Suggested Limit Price:* ₹{sig['limit_price']:.2f}\n"
-            msg += f"📉 *Peak Discount:* {sig['drawdown']:.2f}%\n"
-            msg += f"📊 *Weekly RSI:* {sig['weekly_rsi']:.1f} | *Daily RSI:* {sig['daily_rsi']:.1f}\n\n"
-            msg += f"📰 *MACRO & NEWS ANALYSIS:*\n{sig['ai_note']}\n\n"
-
-        elif sig["type"] == "SELL":
-            msg += f"🔴 *SIGNAL: PROFIT BOOKING (SELL)* ({sig['asset_key']})\n"
-            msg += f"📌 *Asset:* {sig['name']}\n"
-            msg += f"📲 *Action:* Groww App par apne saare units sell karke cash free karein.\n"
-            msg += f"💵 *Selling Price:* ₹{sig['price']:.2f}\n"
-            msg += f"🛒 *Buying Price:* ₹{sig['buy_price']:.2f}\n"
-            msg += f"🚀 *Net Realized Profit:* +{sig['gain_pct']:.2f}%\n\n"
-            msg += f"📰 *EXIT REASONING & NEWS:*\n{sig['ai_note']}\n\n"
-
-    msg += f"─────────────────────────────────\n"
-    msg += f"🛑 *DISCIPLINE & EXECUTION RULES (Strictly Follow):*\n"
-    msg += f"1️⃣ *No FOMO Trading:* Telegram alert ke bina market mein koi bhi manual trade na lein.\n"
-    msg += f"2️⃣ *₹15,000 Limit Rule:* Pehli baari mein ₹15,000 se ₹1 bhi zyada na lagayein. Baaki ₹35,000 reserve rakhein.\n"
-    msg += f"3️⃣ *Limit Order Advantage:* Pehle Limit Order lagayein, agar 3:00 PM tak fill na ho tabhi Market Order lein.\n\n"
-    msg += f"💡 *MOTIVATIONAL THOUGHT:*\n"
-    msg += f"_\"Bina discipline ke trading जुआ (gambling) hai, aur rules ke saath trading Wealth Creation hai.\"_\n\n"
-    msg += f"⏰ *Execute before 3:15 PM IST on Groww App.*"
-
-    print(msg)
-
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+# -------------------------------------------------------------------
+# 3. STATE PERSISTENCE (Saves Buy Price, Qty, Dynamic SL)
+# -------------------------------------------------------------------
+def load_state():
+    if os.path.exists(CONFIG["STATE_FILE"]):
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
-            print("Telegram alert delivered successfully.")
+            with open(CONFIG["STATE_FILE"], "r") as f:
+                return json.load(f)
         except Exception as e:
-            print(f"Failed to send Telegram message: {e}")
+            logging.error(f"Error loading state file: {e}")
+    return {"in_position": False, "buy_price": 0.0, "current_sl": 0.0, "qty": 0, "symbol": CONFIG["SYMBOL"]}
 
+def save_state(state: dict):
+    try:
+        with open(CONFIG["STATE_FILE"], "w") as f:
+            json.dump(state, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving state file: {e}")
+
+# -------------------------------------------------------------------
+# 4. SEASONAL FESTIVAL & MACRO WAR NEWS ANALYZER
+# -------------------------------------------------------------------
+def get_seasonal_and_news_context():
+    """
+    Checks Seasonal festivals (Dhanteras, Diwali, Wedding Season) 
+    and War/Geopolitical news for Gold/Silver.
+    """
+    today = datetime.datetime.now()
+    month = today.month
+    
+    # Seasonal Demand Filter for Indian Gold (Oct-Nov: Dhanteras/Diwali, Dec-Feb: Wedding Season)
+    is_festive_season = month in [10, 11, 12, 1, 2]
+    seasonal_tag = "HIGH FESTIVE/WEDDING DEMAND SEASON" if is_festive_season else "REGULAR SEASON"
+
+    # War & Geopolitical News Feed Analysis
+    try:
+        ticker = yf.Ticker(CONFIG["GLOBAL_GOLD_SYMBOL"])
+        news = ticker.news
+        latest_title = news[0].get("title", "No critical news") if news else "No news available"
+        
+        war_keywords = ["war", "conflict", "attack", "strike", "geopolitical", "crisis", "sanction", "fed", "rate cut", "inflation"]
+        is_high_risk_event = any(word in latest_title.lower() for word in war_keywords)
+        
+        sentiment = "BULLISH (SAFE HAVEN DEMAND)" if is_high_risk_event else ("BULLISH (SEASONAL)" if is_festive_season else "NEUTRAL")
+        
+        return {
+            "is_festive": is_festive_season,
+            "seasonal_tag": seasonal_tag,
+            "is_war_event": is_high_risk_event,
+            "news_title": latest_title,
+            "sentiment": sentiment
+        }
+    except Exception as e:
+        logging.error(f"News Analysis Error: {e}")
+        return {
+            "is_festive": is_festive_season,
+            "seasonal_tag": seasonal_tag,
+            "is_war_event": False,
+            "news_title": "Market Data Normal",
+            "sentiment": "NEUTRAL"
+        }
+
+# -------------------------------------------------------------------
+# 5. MULTI-TIMEFRAME DATA RETRIEVAL (Weekly + Daily)
+# -------------------------------------------------------------------
+def fetch_multi_timeframe_data(symbol):
+    try:
+        # 1. Fetch Weekly Data for Big Trend Analysis
+        df_weekly = yf.download(symbol, period="1y", interval="1wk", progress=False)
+        if isinstance(df_weekly.columns, pd.MultiIndex):
+            df_weekly.columns = df_weekly.columns.get_level_values(0)
+            
+        df_weekly['EMA20_W'] = df_weekly['Close'].ewm(span=20, adjust=False).mean()
+        weekly_uptrend = df_weekly.iloc[-1]['Close'] > df_weekly.iloc[-1]['EMA20_W']
+
+        # 2. Fetch Daily Data for Entry Setup
+        df_daily = yf.download(symbol, period="60d", interval="1d", progress=False)
+        if isinstance(df_daily.columns, pd.MultiIndex):
+            df_daily.columns = df_daily.columns.get_level_values(0)
+            
+        df_daily.dropna(inplace=True)
+
+        # Technical Indicators Calculation
+        df_daily['EMA9'] = df_daily['Close'].ewm(span=9, adjust=False).mean()
+        df_daily['EMA21'] = df_daily['Close'].ewm(span=21, adjust=False).mean()
+        df_daily['EMA50'] = df_daily['Close'].ewm(span=50, adjust=False).mean()
+
+        # RSI Calculation
+        delta = df_daily['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        df_daily['RSI'] = 100 - (100 / (1 + rs))
+
+        # ATR for Dynamic SL
+        high_low = df_daily['High'] - df_daily['Low']
+        high_close = np.abs(df_daily['High'] - df_daily['Close'].shift())
+        low_close = np.abs(df_daily['Low'] - df_daily['Close'].shift())
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = np.max(ranges, axis=1)
+        df_daily['ATR'] = true_range.rolling(14).mean()
+
+        return df_daily, weekly_uptrend
+    except Exception as e:
+        logging.error(f"Error fetching data for {symbol}: {e}")
+        return pd.DataFrame(), False
+
+# -------------------------------------------------------------------
+# 6. STAGE 1 TO STAGE 4 VALIDATION RULES (NO GAPS)
+# -------------------------------------------------------------------
+def validate_stages(df_daily, weekly_uptrend, macro_info):
+    row = df_daily.iloc[-1]
+    prev_row = df_daily.iloc[-2]
+
+    # STAGE 1: Macro & Seasonal Alignment Filter
+    stage1 = macro_info['is_festive'] or macro_info['is_war_event'] or (row['Close'] > row['EMA50'])
+    if not stage1:
+        return False, "Failed Stage 1: Macro/Seasonal conditions not aligned."
+
+    # STAGE 2: Weekly Trend Confirmation
+    stage2 = weekly_uptrend
+    if not stage2:
+        return False, "Failed Stage 2: Weekly trend is bearish."
+
+    # STAGE 3: Daily Momentum & RSI Setup (AND / OR)
+    stage3_a = (45 <= row['RSI'] <= 65)  # Steady accumulation zone
+    stage3_b = (prev_row['RSI'] < 50 and row['RSI'] >= 50) # Bullish crossover
+    stage3 = stage3_a or stage3_b
+    if not stage3:
+        return False, "Failed Stage 3: Daily momentum / RSI condition not met."
+
+    # STAGE 4: Price Action & Breakout Trigger (AND)
+    stage4 = (row['Close'] > prev_row['High']) and (row['EMA9'] > row['EMA21'])
+    if not stage4:
+        return False, "Failed Stage 4: Price Action breakout confirmation missing."
+
+    return True, "ALL 4 STAGES PASSED SUCCESSFULLY"
+
+# -------------------------------------------------------------------
+# 7. MAIN ENGINE EXECUTION
+# -------------------------------------------------------------------
+def run_positional_etf_bot():
+    logging.info("Analyzing Nippon India ETF Positional Opportunities...")
+    state = load_state()
+    macro_info = get_seasonal_and_news_context()
+    
+    df_daily, weekly_uptrend = fetch_multi_timeframe_data(CONFIG["SYMBOL"])
+    if df_daily.empty or len(df_daily) < 30:
+        logging.warning("Insufficient data available.")
+        return
+
+    current_price = float(df_daily.iloc[-1]['Close'])
+    current_atr = float(df_daily.iloc[-1]['ATR'])
+
+    # ---------------------------------------------------------------
+    # ACTIVE POSITION MANAGEMENT (DYNAMIC TRAILING & EXIT)
+    # ---------------------------------------------------------------
+    if state["in_position"]:
+        buy_price = state["buy_price"]
+        current_sl = state["current_sl"]
+        
+        # Dynamic ATR Trailing SL Calculation
+        new_calculated_sl = current_price - (CONFIG["TRAILING_ATR_MULT"] * current_atr)
+        
+        # Trailing SL Shift upwards
+        if new_calculated_sl > current_sl:
+            state["current_sl"] = round(new_calculated_sl, 2)
+            save_state(state)
+            
+            msg = (
+                f"🏆 <b>NIPPON ETF: DYNAMIC TRAILING SL INCREASED</b>\n"
+                f"───────────────────────────────\n"
+                f"<b>Symbol:</b> {CONFIG['SYMBOL']}\n"
+                f"<b>Live Price:</b> ₹{current_price:.2f}\n"
+                f"<b>New Dynamic Stop Loss:</b> ₹{state['current_sl']:.2f}\n"
+                f"<b>Locked Profit / Unit:</b> ₹{state['current_sl'] - buy_price:.2f}\n"
+                f"───────────────────────────────\n"
+                f"📌 <i>Guideline: Let your profits run! Stop loss will keep trailing up.</i>"
+            )
+            send_telegram_message(msg)
+
+        # Exit Signal Check
+        if current_price <= state["current_sl"]:
+            total_pnl = (current_price - buy_price) * state["qty"]
+            msg = (
+                f"🔴 <b>POSIIONAL EXIT SIGNAL (SL HIT)</b>\n"
+                f"───────────────────────────────\n"
+                f"<b>Symbol:</b> {CONFIG['SYMBOL']}\n"
+                f"<b>Sell Price:</b> ₹{current_price:.2f}\n"
+                f"<b>Buy Price:</b> ₹{buy_price:.2f}\n"
+                f"<b>Total Realized PnL:</b> ₹{total_pnl:.2f}\n"
+                f"───────────────────────────────\n"
+                f"💡 <i>Guideline: Capital protected. Wait for next Stage 1-4 setup.</i>"
+            )
+            send_telegram_message(msg)
+            
+            state = {"in_position": False, "buy_price": 0.0, "current_sl": 0.0, "qty": 0, "symbol": CONFIG["SYMBOL"]}
+            save_state(state)
+
+    # ---------------------------------------------------------------
+    # NEW BUY ENTRY SIGNAL CHECK
+    # ---------------------------------------------------------------
+    else:
+        signal_valid, reason = validate_stages(df_daily, weekly_uptrend, macro_info)
+        
+        if signal_valid:
+            initial_sl = current_price - (CONFIG["TRAILING_ATR_MULT"] * current_atr)
+            qty = int(CONFIG["INVESTMENT_CAPITAL_INR"] // current_price)
+            
+            state["in_position"] = True
+            state["buy_price"] = round(current_price, 2)
+            state["current_sl"] = round(initial_sl, 2)
+            state["qty"] = qty
+            save_state(state)
+
+            msg = (
+                f"🟢 <b>HIGH-CONFIRMATION BUY SIGNAL</b>\n"
+                f"<b>Nippon India Gold BeES Trading Engine</b>\n"
+                f"───────────────────────────────\n"
+                f"<b>Symbol:</b> {CONFIG['SYMBOL']} (NSE)\n"
+                f"<b>Recommended Entry Price:</b> ₹{current_price:.2f}\n"
+                f"<b>Initial Dynamic Stop Loss:</b> ₹{initial_sl:.2f}\n"
+                f"<b>Calculated Quantity (for ₹50k):</b> {qty} units\n"
+                f"───────────────────────────────\n"
+                f"<b>STAGE STATUS:</b> All 4 Stages Passed ✅\n"
+                f"• Stage 1 (Macro/Seasonal): PASSED\n"
+                f"• Stage 2 (Weekly Trend): PASSED\n"
+                f"• Stage 3 (Daily Momentum): PASSED\n"
+                f"• Stage 4 (Price Action Trigger): PASSED\n"
+                f"───────────────────────────────\n"
+                f"<b>MARKET & NEWS CONTEXT:</b>\n"
+                f"<b>Seasonality:</b> {macro_info['seasonal_tag']}\n"
+                f"<b>Latest Macro News:</b> {macro_info['news_title']}\n"
+                f"<b>Market Sentiment:</b> {macro_info['sentiment']}\n"
+                f"───────────────────────────────\n"
+                f"📌 <b>EXPERT GUIDELINES FOR YOU:</b>\n"
+                f"1. Put a Buy order for {qty} units at ~₹{current_price:.2f} on your broker app.\n"
+                f"2. Sit back and relax. The bot will monitor dynamic stop loss automatically."
+            )
+            send_telegram_message(msg)
+        else:
+            logging.info(f"Scan complete. No trade signal. Reason: {reason}")
+
+# -------------------------------------------------------------------
+# 8. EXECUTION LOOP
+# -------------------------------------------------------------------
 if __name__ == "__main__":
-    main()
+    logging.info("Starting Nippon India Positional Trading Engine...")
+    try:
+        run_positional_etf_bot()
+    except Exception as e:
+        logging.critical(f"System Error: {e}", exc_info=True)
