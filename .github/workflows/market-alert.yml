@@ -9,12 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       test_mode:
-        description: 'Dry Run Only? (True = Console output only, No Telegram message)'
+        description: 'Dry Run Only? (Set to false to send actual Telegram message)'
         type: boolean
         required: false
-        default: true
+        default: false
       back_date:
-        description: 'Back-date Test (YYYY-MM-DD, e.g., 2025-06-15). Leave blank for live run.'
+        description: 'Back-date Test (YYYY-MM-DD, e.g., 2026-08-25). Leave blank for live run.'
         type: string
         required: false
         default: ''
@@ -40,6 +40,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           # Verify file exists before running to avoid Path Error
           if [ ! -f "market_check.py" ]; then
@@ -54,13 +55,16 @@ jobs:
             exit 1
           fi
 
-# Build command dynamically based on inputs
-CMD="python $SCRIPT_PATH"
+          # Build command dynamically based on inputs
+          CMD="python $SCRIPT_PATH"
+          
           if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
             CMD="$CMD --test"
           fi
+          
           if [ -n "${{ github.event.inputs.back_date }}" ]; then
             CMD="$CMD --date ${{ github.event.inputs.back_date }}"
           fi
+          
           echo "Executing: $CMD"
           $CMD
