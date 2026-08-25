@@ -54,18 +54,13 @@ jobs:
             exit 1
           fi
 
-          # Build command dynamically based on inputs
-          CMD="python $SCRIPT_PATH"
-
-          if [ "${{ github.event.inputs.test_mode }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" -a "${{ github.event.inputs.test_mode }}" = "" ]; then
-            if [ "${{ github.event.inputs.test_mode }}" != "false" ]; then
-              CMD="$CMD --test"
-            fi
+# Build command dynamically based on inputs
+CMD="python $SCRIPT_PATH"
+          if [ "${{ github.event.inputs.test_mode }}" = "true" ]; then
+            CMD="$CMD --test"
           fi
-
           if [ -n "${{ github.event.inputs.back_date }}" ]; then
             CMD="$CMD --date ${{ github.event.inputs.back_date }}"
           fi
-
           echo "Executing: $CMD"
           $CMD
