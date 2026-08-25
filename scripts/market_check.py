@@ -15,11 +15,11 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Updated Small Cap tickers using Index (^CNXSC) for reliable historical backtesting
+# Updated robust tickers: High-liquidity ETFs + Official NSE Index fallback for 100% uptime
 CATEGORIES_TICKERS = {
-    "LARGE CAP": ["NIFTYBEES.NS", "^NSEI"],
-    "MID CAP": ["MID150BEES.NS", "MIDCAPETF.NS"],
-    "SMALL CAP": ["^CNXSC", "SMLCAPBEES.NS", "HDFCSML250.NS"]
+    "LARGE CAP": ["NIFTYBEES.NS", "^NSEI", "SETFNIFBK.NS", "ICICINIFTY.NS"],
+    "MID CAP": ["MID150BEES.NS", "^CRSMID", "MIDCAPETF.NS", "HDFCMID150.NS"],
+    "SMALL CAP": ["^CNXSC", "NIFTY_SMLCAP250.NS", "HDFCSML250.NS", "SMLCAPBEES.NS"]
 }
 
 def send_telegram_error_alert(error_msg):
