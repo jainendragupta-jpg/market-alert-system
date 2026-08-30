@@ -348,7 +348,7 @@ def run_market_check():
     msg += f"• Score 45-65: 🟡 Normal Market / Regular SIP\n"
     msg += f"• Score > 65 : 🔴 High Peak / Stop Lumpsum & Prepay Loan\n"
 
-msg += f"\n──────────────────────\n"
+    msg += f"\n──────────────────────\n"
     msg += f"📊 PE VALUATION REFERENCE CHART\n"
     msg += f"• Large Cap : Cheap <20 | Fair 20-24 | Exp >24\n"
     msg += f"• Mid Cap   : Cheap <24 | Fair 24-29 | Exp >29\n"
