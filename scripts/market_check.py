@@ -312,7 +312,7 @@ def run_market_check():
         msg += f"• Action: {s_action}\n"
         msg += f"• Price: {data['price']:.2f} ({data['p_change']:+.2f}%)\n"
         msg += f"• Drawdown: {data['drawdown']:.2f}% from 52W High\n"
-pe_status = get_pe_status(cat_name, data.get('current_pe', 22.0))
+        pe_status = get_pe_status(cat_name, data.get('current_pe', 22.0))
         msg += f"• Weekly RSI: {data['weekly_rsi']:.2f} | Monthly RSI: {data['monthly_rsi']:.2f}\n"
         msg += f"• PE Ratio: {data.get('current_pe', 22.0):.1f} (1Y Med: {data.get('median_pe', 21.0):.1f}) | [{pe_status}]\n"
         msg += f"• DMA Trend: {dma_status}\n\n"
