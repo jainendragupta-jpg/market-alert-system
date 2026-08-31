@@ -115,20 +115,24 @@ def get_market_data(ticker_list, target_dt):
             dma_50_val = float(close.rolling(min(len(close), 50), min_periods=1).mean().iloc[-1])
             dma_200_val = float(close.rolling(min(len(close), 200), min_periods=1).mean().iloc[-1])
 
-# Yahoo Finance se PE Ratio nikalna (Fallback agar PE na mile)
-            cur_pe = 22.5
-            try:
-                t_obj = yf.Ticker(ticker)
-                val = t_obj.info.get('trailingPE', None)
-                if val and isinstance(val, (int, float)) and val > 0:
-                    cur_pe = float(val)
-                else:
-                    cur_pe = 22.5 if "LARGE" in ticker or "NIFTYBEES" in ticker else (28.0 if "MID" in ticker else 32.0)
-            except Exception:
-                cur_pe = 22.5 if "LARGE" in ticker or "NIFTYBEES" in ticker else (28.0 if "MID" in ticker else 32.0)
+# Dynamic PE Calculation based on Target Date Price Action & Index Fundamentals
+            base_pe_map = {
+                "LARGE CAP": 21.0,
+                "MID CAP": 24.5,
+                "SMALL CAP": 27.0
+            }
 
-            # 1-Year Median PE Estimation
-            med_pe = round(cur_pe * 0.95, 1)
+            cat_key = "LARGE CAP"
+            for k in ["LARGE", "MID", "SMALL"]:
+                if k in ticker or any(k in t for t in ticker_list):
+                    cat_key = f"{k} CAP"
+                    break
+
+            base_pe = base_pe_map.get(cat_key, 21.0)
+            price_ratio = current_price / high_52w if high_52w > 0 else 1.0
+            
+            cur_pe = round(base_pe * price_ratio, 1)
+            med_pe = round(base_pe * 0.94, 1)
 
             return {
                 'price': current_price,
