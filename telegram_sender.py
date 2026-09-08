@@ -1,3 +1,4 @@
+import re
 import requests
 import logging
 from typing import Dict, Any
@@ -6,9 +7,13 @@ class TelegramReporter:
     """Formats market data and pushes formatted notifications to Telegram API."""
 
     def __init__(self, bot_token: str, chat_id: str):
-        self.bot_token = bot_token
-        self.chat_id = chat_id
-        self.api_url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){self.bot_token}/sendMessage"
+        # Strip accidental Markdown link wrappers, URLs, and quotes from secrets
+        raw_token = re.sub(r'\[.*?\]\(.*?\)', '', str(bot_token))
+        raw_token = re.sub(r'https?://\S+', '', raw_token)
+        self.bot_token = raw_token.strip(" '\"<>[]")
+        
+        self.chat_id = str(chat_id).strip(" '\"")
+        self.api_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
 
     def format_message(self, data: Dict[str, Any]) -> str:
         news_items = data.get("high_impact_news", [])
