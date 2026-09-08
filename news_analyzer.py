@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from google import genai
@@ -46,7 +47,7 @@ class NewsAnalyzer:
         self.client = genai.Client(api_key=api_key)
         self.language = language
         # Updated candidate list prioritized by the latest active models
-        self.candidate_models = ["gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        self.candidate_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash-latest"]
 
     def analyze_and_rank(self, articles: List[Dict], threshold: float) -> Dict[str, Any]:
         if not articles:
@@ -69,30 +70,40 @@ class NewsAnalyzer:
 
         prompt = f"Analyze the following pre-filtered global news items:\n{json.dumps(articles, indent=2)}"
 
-        # Attempt API generation sequentially through candidate models until one succeeds
+ # Attempt API generation with automatic 503 retry backoff
         for target_model in self.candidate_models:
-            try:
-                logging.info(f"Attempting news analysis with Gemini model: {target_model}...")
-                response = self.client.models.generate_content(
-                    model=target_model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        response_mime_type="application/json",
-                        response_schema=AnalysisResult,
-                        temperature=0.2
+            for attempt in range(1, 4):
+                try:
+                    logging.info(f"Attempting news analysis with Gemini model: {target_model} (Attempt {attempt}/3)...")
+                    response = self.client.models.generate_content(
+                        model=target_model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            response_mime_type="application/json",
+                            response_schema=AnalysisResult,
+                            temperature=0.2
+                        )
                     )
-                )
 
-                if response.parsed:
-                    logging.info(f"Successfully processed analysis using model: {target_model}")
-                    return response.parsed.model_dump()
-                elif response.text:
-                    logging.info(f"Successfully processed raw text analysis using model: {target_model}")
-                    return json.loads(response.text)
+                    if response.parsed:
+                        logging.info(f"Successfully processed analysis using model: {target_model}")
+                        return response.parsed.model_dump()
+                    elif response.text:
+                        logging.info(f"Successfully processed raw text analysis using model: {target_model}")
+                        return json.loads(response.text)
 
-            except Exception as e:
-                logging.warning(f"Model {target_model} failed with error: {e}. Trying next candidate...")
+                except Exception as e:
+                    err_msg = str(e)
+                    logging.warning(f"Model {target_model} attempt {attempt} failed: {err_msg}")
+                    
+                    # Retry if server returns a 503 temporary overload error
+                    if "503" in err_msg and attempt < 3:
+                        time.sleep(3)
+                        continue
+                    
+                    # If 404 or other non-retriable error, break attempt loop to move to next candidate model
+                    break
 
         logging.error("All Gemini candidate models failed to generate a response.")
         return {"high_impact_news": [], "market_outlook": None}
