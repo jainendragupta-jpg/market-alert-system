@@ -7,7 +7,7 @@ from google.genai import types
 
 # Define Pydantic Schemas for Enforced JSON Structure
 class ImpactDetail(BaseModel):
-    asset: str = Field(description="Affected asset e.g., Nifty, S&P 500, Gold, Crude Oil, USD, INR")
+    asset: str = Field(description="Affected asset e.g., Nifty, Sensex, S&P 500, Gold, Crude Oil, USD, INR")
     direction: str = Field(description="Bullish, Bearish, or Neutral")
 
 class HighImpactNews(BaseModel):
@@ -46,6 +46,24 @@ class NewsAnalyzer:
         self.client = genai.Client(api_key=api_key)
         self.language = language
 
+    def _get_active_model(self) -> str:
+        """Dynamically retrieves the first available flash model supporting generateContent."""
+        # Hardcoded candidates in order of preference
+        candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]
+        
+        try:
+            # Query active models directly from Google API
+            available_models = [m.name.replace("models/", "") for m in self.client.models.list() if "generateContent" in getattr(m, 'supported_actions', []) or "generateContent" in getattr(m, 'supported_generation_methods', [])]
+            for model_id in candidate_models:
+                if model_id in available_models:
+                    logging.info(f"Dynamically selected active Gemini model: {model_id}")
+                    return model_id
+        except Exception as err:
+            logging.warning(f"Failed to fetch model list automatically: {err}")
+
+        # Fallback to standard robust endpoint string
+        return "gemini-1.5-flash"
+
     def analyze_and_rank(self, articles: List[Dict], threshold: float) -> Dict[str, Any]:
         if not articles:
             return {"high_impact_news": [], "market_outlook": None}
@@ -67,10 +85,12 @@ class NewsAnalyzer:
 
         prompt = f"Analyze the following pre-filtered global news items:\n{json.dumps(articles, indent=2)}"
 
+        target_model = self._get_active_model()
+
         try:
-            logging.info("Sending request to Gemini API (gemini-2.0-flash) with Structured Output Schema...")
+            logging.info(f"Sending request to Gemini API model ({target_model}) with Structured Output Schema...")
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash',
+                model=target_model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -83,10 +103,12 @@ class NewsAnalyzer:
             # Automatically convert structured response into a dictionary
             if response.parsed:
                 return response.parsed.model_dump()
+            elif response.text:
+                return json.loads(response.text)
             
-            logging.warning("Response could not be parsed via response_schema.")
+            logging.warning("Response returned empty content.")
             return {"high_impact_news": [], "market_outlook": None}
 
         except Exception as e:
-            logging.error(f"Error calling Gemini API: {e}")
+            logging.error(f"Error calling Gemini API on {target_model}: {e}")
             return {"high_impact_news": [], "market_outlook": None}
