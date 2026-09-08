@@ -1,20 +1,21 @@
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 
-# Define Pydantic Models for Strict JSON Enforcements
+# Define Pydantic Schemas for Enforced JSON Structure
 class ImpactDetail(BaseModel):
-    asset: str = Field(description="Affected asset like Nifty, S&P 500, Gold, Crude Oil, USD")
+    asset: str = Field(description="Affected asset e.g., Nifty, S&P 500, Gold, Crude Oil, USD, INR")
     direction: str = Field(description="Bullish, Bearish, or Neutral")
 
 class HighImpactNews(BaseModel):
-    headline: str
-    summary: str
-    impact_score: int
+    headline: str = Field(description="Concise, clear headline")
+    summary: str = Field(description="Maximum 2-3 lines short narrative or bullet summary")
+    impact_score: int = Field(description="AI Impact Score from 0 to 100")
     impact_details: List[ImpactDetail]
-    link: str
+    link: str = Field(description="Direct URL to news item")
 
 class InvestorActionSummary(BaseModel):
     what_to_watch: str
@@ -26,9 +27,9 @@ class InvestorActionSummary(BaseModel):
     crude_oil_impact: str
 
 class MarketOutlook(BaseModel):
-    outlook_1m: str
-    outlook_3m: str
-    outlook_6m: str
+    outlook_1m: str = Field(description="Bullish / Bearish / Neutral")
+    outlook_3m: str = Field(description="Bullish / Bearish / Neutral")
+    outlook_6m: str = Field(description="Bullish / Bearish / Neutral")
     key_risks: List[str]
     key_opportunities: List[str]
     investor_action_summary: InvestorActionSummary
@@ -52,24 +53,24 @@ class NewsAnalyzer:
         lang_instruction = "English" if self.language == 'en' else "Hindi (using clear Devanagari script)"
 
         system_instruction = f"""
-        You are an elite Senior Financial Market Strategist and Quantitative Research Expert.
-        Analyze the input news items and populate the required output schema.
+        You are an elite Senior Financial Market Strategist and Quantitative Research Expert with 30+ years of global experience.
+        Analyze the input news items and populate the required output schema accurately.
         Language of output fields MUST be in {lang_instruction}.
 
-        Evaluate each news item against these criteria:
-        1. Calculate AI Market Impact Score (0 to 100).
-        2. Identify affected asset classes: Nifty, Sensex, S&P 500, Nasdaq, Gold, Silver, Crude Oil, USD, INR.
-        3. Sentiment: Bullish, Bearish, or Neutral per affected asset class.
-        4. Include ONLY items with AI Market Impact Score >= {threshold}.
-        5. Provide market outlooks (1, 3, 6 Months), Key Risks, Key Opportunities, and Investor Action Summaries.
+        Evaluation Criteria:
+        1. Calculate AI Market Impact Score (0 to 100) based on economic significance, geographic importance, market sensitivity, urgency, and reliability.
+        2. Identify affected asset classes strictly: Nifty, Sensex, S&P 500, Nasdaq, Gold, Silver, Crude Oil, USD, INR.
+        3. Assign directional sentiment per asset: Bullish, Bearish, or Neutral.
+        4. Include ONLY news items with AI Market Impact Score >= {threshold}.
+        5. Provide concise, clear 1-month, 3-month, and 6-month market outlooks, key risks, key opportunities, and an investor action summary.
         """
 
-        prompt = f"Analyze these global financial news items:\n{articles}"
+        prompt = f"Analyze the following pre-filtered global news items:\n{json.dumps(articles, indent=2)}"
 
         try:
-            logging.info("Sending requests to Gemini API with Structured Output Schema...")
+            logging.info("Sending request to Gemini API (gemini-2.0-flash) with Structured Output Schema...")
             response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-2.0-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
@@ -79,10 +80,11 @@ class NewsAnalyzer:
                 )
             )
 
-            # Response is automatically parsed into the Pydantic structure
+            # Automatically convert structured response into a dictionary
             if response.parsed:
                 return response.parsed.model_dump()
             
+            logging.warning("Response could not be parsed via response_schema.")
             return {"high_impact_news": [], "market_outlook": None}
 
         except Exception as e:
