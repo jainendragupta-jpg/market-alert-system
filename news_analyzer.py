@@ -1,8 +1,42 @@
-import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
+
+# Define Pydantic Models for Strict JSON Enforcements
+class ImpactDetail(BaseModel):
+    asset: str = Field(description="Affected asset like Nifty, S&P 500, Gold, Crude Oil, USD")
+    direction: str = Field(description="Bullish, Bearish, or Neutral")
+
+class HighImpactNews(BaseModel):
+    headline: str
+    summary: str
+    impact_score: int
+    impact_details: List[ImpactDetail]
+    link: str
+
+class InvestorActionSummary(BaseModel):
+    what_to_watch: str
+    benefiting_sectors: str
+    pressured_sectors: str
+    equities_impact: str
+    mutual_funds_impact: str
+    gold_impact: str
+    crude_oil_impact: str
+
+class MarketOutlook(BaseModel):
+    outlook_1m: str
+    outlook_3m: str
+    outlook_6m: str
+    key_risks: List[str]
+    key_opportunities: List[str]
+    investor_action_summary: InvestorActionSummary
+
+class AnalysisResult(BaseModel):
+    high_impact_news: List[HighImpactNews]
+    market_outlook: Optional[MarketOutlook] = None
+
 
 class NewsAnalyzer:
     """Analyses and evaluates global financial impact using Gemini AI."""
@@ -19,7 +53,7 @@ class NewsAnalyzer:
 
         system_instruction = f"""
         You are an elite Senior Financial Market Strategist and Quantitative Research Expert.
-        Analyze the input news items and return a JSON output analyzing market impact.
+        Analyze the input news items and populate the required output schema.
         Language of output fields MUST be in {lang_instruction}.
 
         Evaluate each news item against these criteria:
@@ -28,61 +62,28 @@ class NewsAnalyzer:
         3. Sentiment: Bullish, Bearish, or Neutral per affected asset class.
         4. Include ONLY items with AI Market Impact Score >= {threshold}.
         5. Provide market outlooks (1, 3, 6 Months), Key Risks, Key Opportunities, and Investor Action Summaries.
-
-        CRITICAL: Return ONLY raw, valid JSON. No Markdown formatting block tags like ```json.
         """
 
-        prompt = f"""
-        Analyze the following global financial news items:
-        {json.dumps(articles, indent=2)}
-
-        Return JSON matching this exact structure:
-        {{
-          "high_impact_news": [
-            {{
-              "headline": "Concise title",
-              "summary": "2-3 line bulleted or crisp narrative summary (under 15s reading time)",
-              "impact_score": 85,
-              "impact_details": [
-                {{"asset": "Nifty / Sensex", "direction": "Bearish / Bullish / Neutral"}},
-                {{"asset": "Crude Oil", "direction": "Bullish"}}
-              ],
-              "link": "Original URL"
-            }}
-          ],
-          "market_outlook": {{
-            "outlook_1m": "Bullish / Bearish / Neutral",
-            "outlook_3m": "Bullish / Bearish / Neutral",
-            "outlook_6m": "Bullish / Bearish / Neutral",
-            "key_risks": ["Risk 1", "Risk 2"],
-            "key_opportunities": ["Opportunity 1", "Opportunity 2"],
-            "investor_action_summary": {{
-              "what_to_watch": "Details...",
-              "benefiting_sectors": "Details...",
-              "pressured_sectors": "Details...",
-              "equities_impact": "Details...",
-              "mutual_funds_impact": "Details...",
-              "gold_impact": "Details...",
-              "crude_oil_impact": "Details..."
-            }}
-          }}
-        }}
-        """
+        prompt = f"Analyze these global financial news items:\n{articles}"
 
         try:
-            logging.info("Sending requests to Gemini 2.5 Flash API...")
+            logging.info("Sending requests to Gemini API with Structured Output Schema...")
             response = self.client.models.generate_content(
-                model='gemini-3.6-flash',
+                model='gemini-2.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     response_mime_type="application/json",
+                    response_schema=AnalysisResult,
                     temperature=0.2
                 )
             )
 
-            result = json.loads(response.text)
-            return result
+            # Response is automatically parsed into the Pydantic structure
+            if response.parsed:
+                return response.parsed.model_dump()
+            
+            return {"high_impact_news": [], "market_outlook": None}
 
         except Exception as e:
             logging.error(f"Error calling Gemini API: {e}")
