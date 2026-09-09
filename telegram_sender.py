@@ -15,7 +15,7 @@ class TelegramReporter:
         self.chat_id = str(chat_id).strip(" '\"")
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
 
-def format_message(self, data: Dict[str, Any]) -> str:
+    def format_message(self, data: Dict[str, Any]) -> str:
         news_items = data.get("high_impact_news", [])
         outlook = data.get("market_outlook")
 
