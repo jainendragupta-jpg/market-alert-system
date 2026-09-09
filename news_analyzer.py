@@ -44,15 +44,14 @@ class AnalysisResult(BaseModel):
 
 
 class NewsAnalyzer:
-    """Analyses and evaluates global financial impact using Gemini AI."""
+    """Analyses and evaluates global and Indian financial impact using Gemini AI."""
 
     def __init__(self, api_key: str, language: str = 'en'):
         self.client = genai.Client(api_key=api_key)
         self.language = language
-        # Updated candidate list prioritized by the latest active models
         self.candidate_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash-latest"]
 
-def analyze_and_rank(self, articles: List[Dict], threshold: float) -> Dict[str, Any]:
+    def analyze_and_rank(self, articles: List[Dict], threshold: float) -> Dict[str, Any]:
         if not articles:
             return {"high_impact_news": [], "market_outlook": None}
 
