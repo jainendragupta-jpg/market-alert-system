@@ -67,6 +67,15 @@ class TelegramReporter:
                 msg += f"🥇 <b>Gold & Silver (MCX):</b> {action.get('gold_silver_impact', 'N/A')}\n"
                 msg += f"🛢 <b>Crude Oil & USD/INR:</b> {action.get('crude_oil_inr_impact', 'N/A')}\n"
 
+                # Impact Score Reference Chart
+                msg += "\n━━━━━━━━━━━━━━━━━━━━\n"
+                msg += "📊 <b>IMPACT SCORE REFERENCE CHART</b>\n"
+                msg += "━━━━━━━━━━━━━━━━━━━━\n"
+                msg += "🔴 <b>80 - 100:</b> High Volatility / Major Market Shift\n"
+                msg += "🟠 <b>60 - 79:</b> Moderate Impact / Sector Specific Movement\n"
+                msg += "🟡 <b>40 - 59:</b> Mild Impact / Watchlist Alert\n"
+                msg += "⚪ <b>0 - 39:</b> Low Impact / Market Noise\n"
+
         return msg
 
     def send_notification(self, message: str) -> bool:
