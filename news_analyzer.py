@@ -71,6 +71,7 @@ system_instruction = f"""
         5. Provide 1-Month, 3-Month, and 6-Month outlooks specifically, key risks, key opportunities, and an investor action summary for Nifty/Indian Market and S&P 500.
         6. Detail specific strategies for Indian Mutual Funds (SIPs, Equity, Debt), Indian Large/Mid/Small-caps, Gold, Crude Oil, and INR.
         """
+
         prompt = f"Analyze the following pre-filtered global news items:\n{json.dumps(articles, indent=2)}"
 
  # Attempt API generation with automatic 503 retry backoff
