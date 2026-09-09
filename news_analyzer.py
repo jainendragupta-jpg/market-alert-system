@@ -74,7 +74,7 @@ system_instruction = f"""
 
         prompt = f"Analyze the following pre-filtered global news items:\n{json.dumps(articles, indent=2)}"
 
- # Attempt API generation with automatic 503 retry backoff
+        # Attempt API generation with automatic 503 retry backoff
         for target_model in self.candidate_models:
             for attempt in range(1, 4):
                 try:
