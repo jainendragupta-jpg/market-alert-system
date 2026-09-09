@@ -15,14 +15,14 @@ class TelegramReporter:
         self.chat_id = str(chat_id).strip(" '\"")
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
 
-    def format_message(self, data: Dict[str, Any]) -> str:
+def format_message(self, data: Dict[str, Any]) -> str:
         news_items = data.get("high_impact_news", [])
         outlook = data.get("market_outlook")
 
         if not news_items:
             return ""
 
-        msg = "🚨 <b>GLOBAL MARKET IMPACT ALERT</b> 🚨\n"
+        msg = "🚨 <b>GLOBAL & INDIAN MARKET ALERT</b> 🚨\n"
         msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
         for idx, item in enumerate(news_items[:8], 1):
@@ -37,7 +37,7 @@ class TelegramReporter:
             
             msg += f"🔗 <a href='{item['link']}'>Read Full Source</a>\n\n"
 
-if outlook:
+        if outlook:
             msg += "━━━━━━━━━━━━━━━━━━━━\n"
             msg += "🇮🇳 <b>INDIAN & GLOBAL MARKET OUTLOOK</b>\n"
             msg += "━━━━━━━━━━━━━━━━━━━━\n"
