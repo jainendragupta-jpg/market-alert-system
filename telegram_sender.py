@@ -37,31 +37,35 @@ class TelegramReporter:
             
             msg += f"🔗 <a href='{item['link']}'>Read Full Source</a>\n\n"
 
-        if outlook:
+if outlook:
             msg += "━━━━━━━━━━━━━━━━━━━━\n"
-            msg += "📈 <b>GLOBAL MARKET OUTLOOK</b>\n"
+            msg += "🇮🇳 <b>INDIAN & GLOBAL MARKET OUTLOOK</b>\n"
             msg += "━━━━━━━━━━━━━━━━━━━━\n"
-            msg += f"🗓 <b>1 Month:</b> {outlook.get('outlook_1m', 'N/A')}\n"
-            msg += f"🗓 <b>3 Months:</b> {outlook.get('outlook_3m', 'N/A')}\n"
-            msg += f"🗓 <b>6 Months:</b> {outlook.get('outlook_6m', 'N/A')}\n\n"
+            msg += f"🗓 <b>Nifty 1-Month:</b> {outlook.get('nifty_outlook_1m', 'N/A')}\n"
+            msg += f"🗓 <b>Nifty 3-Month:</b> {outlook.get('nifty_outlook_3m', 'N/A')}\n"
+            msg += f"🗓 <b>Nifty 6-Month:</b> {outlook.get('nifty_outlook_6m', 'N/A')}\n"
+            msg += f"🇺🇸 <b>US S&P500 3-Month:</b> {outlook.get('us_market_outlook_3m', 'N/A')}\n\n"
 
-            msg += "⚠️ <b>Key Risks:</b>\n"
-            for r in outlook.get("key_risks", []):
+            msg += "⚠️ <b>Key India Risks:</b>\n"
+            for r in outlook.get("key_risks_india", []):
                 msg += f" • {r}\n"
 
-            msg += "\n💡 <b>Key Opportunities:</b>\n"
-            for o in outlook.get("key_opportunities", []):
+            msg += "\n💡 <b>Key India Opportunities:</b>\n"
+            for o in outlook.get("key_opportunities_india", []):
                 msg += f" • {o}\n"
 
             action = outlook.get("investor_action_summary", {})
             if action:
-                msg += "\n🎯 <b>INVESTOR ACTION SUMMARY</b>\n"
-                msg += f"👀 <b>Watch:</b> {action.get('what_to_watch', 'N/A')}\n"
-                msg += f"🟢 <b>Gaining Sectors:</b> {action.get('benefiting_sectors', 'N/A')}\n"
-                msg += f"🔴 <b>Pressured Sectors:</b> {action.get('pressured_sectors', 'N/A')}\n"
-                msg += f"💼 <b>Equities & MFs:</b> {action.get('equities_impact', 'N/A')}\n"
-                msg += f"🥇 <b>Gold:</b> {action.get('gold_impact', 'N/A')}\n"
-                msg += f"🛢 <b>Crude Oil:</b> {action.get('crude_oil_impact', 'N/A')}\n"
+                msg += "\n🎯 <b>INDIAN INVESTOR ACTION SUMMARY</b>\n"
+                msg += f"👀 <b>What to Watch:</b> {action.get('what_to_watch', 'N/A')}\n"
+                msg += f"🟢 <b>Gaining Indian Sectors:</b> {action.get('indian_sectors_benefiting', 'N/A')}\n"
+                msg += f"🔴 <b>Pressured Indian Sectors:</b> {action.get('indian_sectors_pressured', 'N/A')}\n"
+                msg += f"📊 <b>Nifty & Large Caps:</b> {action.get('nifty_sensex_impact', 'N/A')}\n"
+                msg += f"🚀 <b>MidCap & SmallCap:</b> {action.get('indian_mid_smallcap_impact', 'N/A')}\n"
+                msg += f"💰 <b>Mutual Funds & SIPs:</b> {action.get('indian_mutual_funds_impact', 'N/A')}\n"
+                msg += f"🇺🇸 <b>US Equities:</b> {action.get('us_markets_impact', 'N/A')}\n"
+                msg += f"🥇 <b>Gold & Silver (MCX):</b> {action.get('gold_silver_impact', 'N/A')}\n"
+                msg += f"🛢 <b>Crude Oil & USD/INR:</b> {action.get('crude_oil_inr_impact', 'N/A')}\n"
 
         return msg
 
