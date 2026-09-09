@@ -68,7 +68,7 @@ system_instruction = f"""
         2. Identify affected assets: Nifty 50, Sensex, Nifty Midcap, Nifty Smallcap, S&P 500, Nasdaq, Gold (MCX), Crude Oil, USD/INR.
         3. Give explicit directional impact on the Indian stock market alongside US markets.
         4. Include ONLY news items with AI Market Impact Score >= {threshold}.
-        5. Provide 1-Month, 3-Month, and 6-Month outlooks specifically for Nifty/Indian Market and S&P 500.
+        5. Provide 1-Month, 3-Month, and 6-Month outlooks specifically, key risks, key opportunities, and an investor action summary for Nifty/Indian Market and S&P 500.
         6. Detail specific strategies for Indian Mutual Funds (SIPs, Equity, Debt), Indian Large/Mid/Small-caps, Gold, Crude Oil, and INR.
         """
 
